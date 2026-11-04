@@ -1,4 +1,4 @@
-# IRCTC OneTrip — AI-powered, multilingual integrated travel platform (prototype v1.2.1)
+# IRCTC OneTrip — AI-powered, multilingual integrated travel platform (prototype v1.2.2)
 
 > **One journey. One dashboard. In your language.**
 > A working prototype for **Case 13 — "How should IRCTC expand its digital travel platform?"**
@@ -41,7 +41,7 @@ There is no build step and no dependencies: plain HTML, CSS and JavaScript (clas
 
 ## 🎬 3-minute jury demo
 
-Click **Start demo** in the header. The 24-step guided tour drives the app by itself, so you only press **Next**:
+Click **Start demo** in the header. The 25-step guided tour drives the app by itself, so you only press **Next**:
 
 1. **Sign in as a persona** (`#/login`): Sunita Sharma, a family traveller from New Delhi who prefers Hindi. The language,
    home city, party of 3 and preferences load automatically.
@@ -72,6 +72,8 @@ one payment, two PNRs), **"Add return train"** on My Journey for trips booked on
 they show "≈ ₹X on meter" with "No booking needed: take one from the prepaid auto booth outside … station; pay the driver".
 Say it too: *"book from Chandigarh to Mumbai train on Friday and back on Sunday"*, *"… aur Sunday ko wapas"*, *"वापसी रविवार"*.
 
+**New in v1.2.2:** don't want to pay for the train first? Under **Pay** on the passenger page choose **"Add hotel, transport, food & sightseeing — pay once at the end"**: the train (or both trains of a round trip) waits in your trip unpaid, you add the stay and transport, and checkout charges everything in **one payment** and issues the PNR(s) then.
+
 Try typing any route in the home box, e.g. **"book from Chandigarh to Mumbai train"**, "चंडीगढ़ से मुंबई ट्रेन कल",
 "hotel in Hyderabad", "status of my train", "refund kab milega".
 
@@ -88,6 +90,7 @@ Pre-demo checklist: see [`docs/VERIFICATION.md`](docs/VERIFICATION.md#jury-demo-
 | | `#/hotels?city=&in=&out=&guests=&rooms=&min=&max=` | Hotels on their own, with a visible **Budget per night** control (dual slider ₹500–₹15,000, min/max inputs, quick chips, live "x of y hotels within budget") |
 | | `#/transport?city=&from=&to=&date=&time=&pax=` | **Cab · auto · bus · metro · e-rickshaw · walk** side by side for any leg (station, airport, hotel, landmark typeahead): total + per-person price, time, wait/frequency, comfort, luggage, door-to-door, last-mile walk, CO₂, availability (metro only in cities that have one), Cheapest / Fastest / Best-for-your-group badges, source + checked time + verification badge. **Cab, metro and bus have a Book button; auto-rickshaws and shared e-rickshaws do not (v1.2.1):** they run on the meter / are flagged down, so they show "≈ ₹X on meter" (e-rick "≈ ₹20 per person") and "No booking needed: take one from the prepaid auto booth outside <station>; pay the driver" |
 | | Pay-on-meter rides (v1.2.1) | In the journey flow "I'll take an auto" puts the ride in the plan, timeline and one-page itinerary as "Pay on meter, ≈ ₹X". It is stored apart from bookable items (`journey.meterRides`), so it is **never** in the cart total, charged, given a booking ref, listed in Bookings & refunds or sent to a partner. Catalogue prepaid-booth autos behave the same. Older saved data with an unpaid auto is migrated on load |
+| | Pay once for trains + services (v1.2.2) | On `#/trains/book` (one way, round trip, "Add return train", "Add a train to this trip", and the voice / assistant path) a second choice sits right under **Pay**: *or* **"Add hotel, transport, food & sightseeing — pay once at the end"**. Passengers are validated as for Pay; the train(s) go into the trip **unpaid** (`journey.hold`, status "Not paid yet", no PNR, nothing in `bookings`), and the planning screen opens with the banner *"Trains in your trip (not paid yet) · ₹X · Pay everything at checkout"*. My Journey shows the train stop(s) "Not paid yet — pay at checkout", **Review & pay for everything**, Change / Remove (with confirm); readiness counts an unpaid ticket at 80%. Checkout lists Outward / Return train lines (fare × passengers + convenience fee) and the services with one total; one confirm, **one payment**, and the pop-up shows the PNR(s) and the service refs. Only then do the trains become normal bookings (Bookings & refunds, partner, admin, itinerary, WhatsApp). A train that has left by checkout is blocked with a clear message; picking another train replaces the unpaid one |
 | | `#/food?city=`, `#/sights?city=` | Meals and entry tickets on their own |
 | | `#/itinerary-print` | **One-page itinerary**: A4 print view (Download PDF = print → Save as PDF), PNG drawn on a canvas, one-tap WhatsApp (opens `wa.me/91<number>?text=…` straight away with the signed-in traveller's mobile; asks for a number only if none is on the profile, with "Change number" under the buttons) and email (mailto with consent + confirm); sends are logged for Admin |
 | | `#/trains?from=&to=&date=` | Simulated timetable for any of ~40 stations (typeahead in English and Indian scripts), classes, fares, availability (AVAILABLE / RAC / WL / REGRET), filters and sort, verification badge + source + checked time per train |

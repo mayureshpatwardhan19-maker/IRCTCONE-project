@@ -1,3 +1,55 @@
+# IRCTC OneTrip: v1.2.2 builder notes (to be verified)
+
+Builder notes for the owner's v1.2.2 request, written by the builder on 4 Nov 2026. **Not yet independently verified.** The v1.2.1 verification report and everything before it follow unchanged.
+
+> Owner: "Without paying the train tickets, we are not able to go to booking the other services like hotels and transport. Once I have selected both the trains or one train … give an option below the pay option: do you want to add other services, or just pay for the booked trains. If I click on the other services, I can add other services and pay at the last."
+
+## v1.2.2-1. What changed
+
+- **Book page** (`#/trains/book`, one way, round trip, `attach=return`, "Add a train to this trip", the voice / assistant path): under the unchanged **Pay ₹X & book** button there is now an *or* divider and **"Add hotel, transport, food & sightseeing — pay once at the end"** (`#trn-hold`, `data-tour="pay-later"`) with the hint "Your train choice is kept in your trip; you pay for everything together at checkout and the PNR is issued then." When adding a return to an existing journey the label is "Add to my trip and pay later at checkout, with everything else".
+- **Holding** validates passengers exactly like Pay, then stores the train(s) in `journey.hold = { legs: [{ leg: 'outward'|'return', no, name, from, to, date, dep, arr, arrDate, cls, farePerPax, chance, pax:[…] }], method, createdAt }`. `journey.train` (and `journey.returnTrain` for a round trip) get `status: 'HELD'`, `held: true`, no PNR, no coach/seats. **Nothing** is written to `bookings`, so Bookings & refunds, partner P-101 and admin GTV/train counts cannot see it. The app opens the destination planning screen (`#/results?to=<city>`, the same "plan your stay" agents run) with the banner **"Trains in your trip (not paid yet) · ₹X · Pay everything at checkout"** and a "Review & pay for everything" button. A pending For-you package is applied as after a paid train.
+- **Replace, never duplicate:** holding again for the same destination (another train, another class, or a round trip) replaces the held legs in the same journey and keeps the hotel/cab/food/sights and meter rides. A standalone stay in that city keeps its items too (as with pay-now). Paying now for a train while an unpaid one for the same city is in the trip also keeps the services and drops the unpaid train.
+- **My Journey:** the ticket card shows PNR "—" and the badge **"Not paid yet — pay at checkout"**; a saffron box with the amount, **Review & pay for everything**, "Change … train" and **Remove train from trip** (confirm dialog: "nothing to refund"; a held return can be removed alone). Timeline dep/arr (and return) stops carry the same badge. Trip cost lists "Train ticket (not paid yet)" / "Return train (not paid yet)" and adds them to "To pay now"; the main button becomes "Review & pay for everything (n)". **Trip Readiness**: an unpaid ticket / return counts 80% (like any planned item), labelled "In your trip, not paid yet (80%)". Removing the outward when services remain turns the trip into a stay without a train ("Add a train to this trip" again); when nothing remains, My Journey is empty.
+- **Checkout:** an intro line, then one line per held train ("Outward · 12011 …", "Return · 12012 …", route, date, class × passengers, names, "Not paid yet · PNR is issued when you pay", Choose another train / Remove), amount = fare × passengers + convenience fee (₹20 UPI/wallet, ₹35 card, same rule as pay-now; the checkout opens on the method chosen on the train page), then the services. Totals: Train tickets (n) + OneTrip services = **one grand total**, "of which train convenience fee". The confirm dialog lists each train (with passengers and amount), each service and the total. One payment books every held leg through the same simulated gateway (`OT.data.rail.book`) and the services in **one transaction**; the pop-up shows **the PNR(s) and the service refs**. The trains then become ordinary train bookings (`leg: 'outward'/'return'` when there are two legs), so Bookings & refunds (independent cancellation, Outward/Return labels), partner/admin counts, the one-page itinerary, WhatsApp text and "Add return train" behave exactly as after pay-now.
+- **Departed train:** if a held train has left (or booking has closed 30 min before departure, or it became full), checkout shows "Train 12011 left on … at …, so it can no longer be booked. Remove it from your trip or choose another train.", Pay is disabled and `pay()` refuses; My Journey and the planning banner show the same warning.
+- **Bookings & refunds** shows a note "n train(s) in your trip, not paid yet" (not a booking card) while a hold exists.
+- **Tour:** new step 8 "Or: add the stay first, pay once" highlights the option; the tour still pays now for the main path. 25 steps.
+- **i18n:** Hindi for all 41 new strings (+ `trainStatus.HELD`); the button label in bn, mr, ta, te, kn, ml, gu, pa, or; the rest falls back to English.
+- Small hardening: no "PNR null" anywhere for an unpaid train (timeline sub-line, consolidated itinerary, A4/PNG/text itinerary, assistant PNR/status answers).
+
+## v1.2.2-2. Files touched
+
+| File | Change |
+|---|---|
+| `js/views/trains.js` | option HTML under Pay, `holdForLater`, `OT.trainHold` (get, amount, legAmount, problem, banner, issue, remove, searchPath), pay-now keeps services of an unpaid same-city trip, `attachReturn` drops a held return, `trainBooking` takes the method label |
+| `js/views/checkout.js` | train lines, totals, confirm lines, one payment issues PNRs + service refs, departed block, remove |
+| `js/views/journey.js` | unpaid badge / note / buttons, cost rows, readiness label, consolidated itinerary |
+| `js/views/results.js` | planning banner |
+| `js/views/bookings.js` | "not paid yet" note |
+| `js/views/itinerary.js` | "Not paid yet" instead of a status code / null PNR |
+| `js/agents/agents.js` | readiness HELD = 80%, timeline sub-line, assistant PNR fallback |
+| `js/tour.js` | step 8 |
+| `js/core/i18n.js` | Hindi + button label in 9 languages |
+| `css/traveller.css` | option, banner, note, checkout line styles; checkout Pay button wraps |
+| `tests/e2e.py` | new group `v122` |
+
+## v1.2.2-3. Tests
+
+New group `v122` (`python3 tests/e2e.py --only v122`), 1440 and 375, file and http: option position and wording; passenger validation; one-way hold (HELD, no PNR, no booking, amount = pay-now amount, banner text and amount); nothing in Bookings / partner / admin before payment; My Journey badges, button, readiness 24/30, "To pay now" arithmetic, no "null"; reload persistence; checkout line + total + Pay label; confirm dialog; one pop-up with PNR + hotel + cab refs and amount = total; after payment one transaction, sums, Bookings cancellable, partner/admin counts, itinerary PNR, WhatsApp wa.me/917589802655 with the PNR, "Add return train" afterwards; round trip hold, replace the outward with another train (same journey, hotel kept), readiness of the unpaid return, checkout outward + return + hotel arithmetic, two PNRs, Outward/Return, independent cancellation; remove with confirm / Keep it, stay kept as a trip, empty journey when nothing remains; standalone stay → Add a train → both options → same journey; departed train blocked; pay-now unchanged; assistant path + Hindi strings; scans in hi/ta/bn; the full tour (desktop) with the new step.
+
+## v1.2.2-4. Results (builder runs, 4 Nov 2026)
+
+RESULTS_PLACEHOLDER
+
+## v1.2.2-5. Known limitations
+
+1. The unpaid train is not a real seat hold (the prototype has no inventory): availability, RAC/WL status and the chance are decided at checkout. The hint says the PNR is issued at payment.
+2. Removing an unpaid outward train while a *paid* return (added with pay-now) exists drops the return from the journey view; its booking stays in Bookings & refunds.
+3. Passengers of a held return added later ("Add return train" → pay later) are kept per leg, so they can differ from the outward's.
+4. Only Hindi has the new wording; the other 9 languages translate the button label only.
+
+---
+
 # IRCTC OneTrip: v1.2.1 independent verification
 
 Independent verification of v1.2.1 against the owner's three v1.2.1 requests, written on 3 Nov 2026 by a separate agent that did not build v1.2.1. Every claim in the builder notes below was re-checked with the verifier's own Playwright scripts (real clicks, 1440×900 and 375×812, file:// and http), not with the builder's tests. The builder notes and the v1.2 report follow unchanged.
@@ -70,7 +122,7 @@ Transport comparison (1440, 375, e-rick card after fix), results Transport tab w
 3. Set **AI mode to "Simulated only"** unless the Wi-Fi and the Gemini key were tested that morning. Keep the language on **English or Hindi** for the return-train and auto story (other languages show some new labels in English).
 4. Make sure **WhatsApp (web or app) is signed in on 75898 02655**: every persona's WhatsApp button opens that chat directly with the itinerary typed. Allow pop-ups for the page.
 5. **Allow the microphone.** Rehearse "book from Chandigarh to Mumbai train" (one way, tomorrow) and "book from Chandigarh to Mumbai train on Friday and back on Sunday": the Return chip appears and the form flips to **Round trip**. Avoid "going back home" phrasing.
-6. Scripted run: **Start demo** and only *Next* (24 steps). Step 16 opens the pre-filled return search, step 17 books it: point at the two PNRs on My Journey. **×** or Esc exits.
+6. Scripted run: **Start demo** and only *Next* (25 steps since v1.2.2; step 8 points at the new pay-once option). Step 17 opens the pre-filled return search, step 18 books it: point at the two PNRs on My Journey. **×** or Esc exits.
 7. Round trip by hand: **Trains → Round trip → New Delhi → Chandigarh**, pick 12011 CC, then 12012 CC on the return date → one passenger form → outward + return = total → **one** payment → pop-up with **both PNRs** → **WhatsApp** opens directly. In **Bookings & refunds** cancel only the return: the refund shows and My Journey offers **Add return train** again.
 8. Autos: **Transport → Chandigarh**: the auto and e-rickshaw cards have **no Book button**, only "≈ ₹30 on meter" / "≈ ₹20 per person" and "take one from the prepaid auto booth outside Chandigarh station". In the journey Transport tab press **I’ll take an auto**: My Journey shows "Pay on meter", checkout and the payment exclude it, the one-page itinerary lists it as "not included in the total". Picking the cab replaces the auto.
 9. Standalone story: **Hotels → Jaipur → Book now → pay** → pop-up → **Download PDF / WhatsApp** → My Journey "Stay in Jaipur" → **Add a train to this trip**.

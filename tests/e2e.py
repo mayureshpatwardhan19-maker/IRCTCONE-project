@@ -1,4 +1,4 @@
-# IRCTC OneTrip end-to-end tests. Run from the repo root:  python3 tests/e2e.py [--shots DIR] [--quick] [--only verify,tour,v121,verify121] [--base file|http]
+# IRCTC OneTrip end-to-end tests. Run from the repo root:  python3 tests/e2e.py [--shots DIR] [--quick] [--only verify,tour,v121,verify121,v122] [--base file|http]
 # Needs: pip install playwright && python -m playwright install chromium. Not loaded by index.html.
 """Drives the prototype like a presenter (real clicks) on file:// and on a local http.server,
 at 1440x900 and 375x812. Fails on console errors, page errors, placeholder/NaN text,
@@ -1734,6 +1734,267 @@ def v121_verify(browser, base, vp):
 
 
 # ---------------------------------------------------------------- main
+def v122(browser, base, vp):
+    """v1.2.2: "Add other services, pay once": the train(s) wait in the trip unpaid, checkout charges trains + services once."""
+    tag = 'v122-' + vp
+    num = lambda s: int(re.sub(r'[^0-9]', '', s or '') or 0)
+
+    def fresh():
+        pg.go('home'); pg.ev('() => localStorage.clear()'); p.reload(); p.wait_for_function('() => window.OT && OT.router.current()')
+        pg.ev('() => { OT.state.lastRun = null; OT.state.lastCheckout = null; }')
+
+    def book_page(path, train=None, cls=None):
+        pg.go(path, 400)
+        if train:
+            p.locator('.trn[data-train="%s"] [data-book="%s"]' % (train, cls) if cls else '.trn[data-train="%s"] .cls-tile:not([disabled])' % train).first.click()
+        else:
+            p.locator('.trn .cls-tile:not([disabled])').first.click()
+        p.wait_for_timeout(300)
+
+    def hold():
+        p.click('#trn-hold'); p.wait_for_timeout(500)
+
+    pg = Page(browser, base, vp, init=OPEN_STUB)
+    p = pg.p
+    fresh()
+    plus = lambda n: pg.ev('n => OT.data.travel.addDays(OT.data.rail.ymd(new Date()), n)', n)
+
+    # ---- A. one way, signed out: the choice sits right below Pay
+    d = plus(5)
+    book_page('trains?from=NDLS&to=CDG&date=%s&pax=2' % d, '12011', 'CC')
+    p.wait_for_selector('#pax-form')
+    geo = pg.ev('() => { const a = document.querySelector("#trn-pay").getBoundingClientRect(), b = document.querySelector("#trn-hold").getBoundingClientRect(); return { payBottom: a.bottom, holdTop: b.top, holdW: b.width, payW: a.width }; }')
+    check('book page: "Add hotel, transport, food & sightseeing — pay once at the end" directly below Pay', geo['holdTop'] > geo['payBottom'] and geo['holdTop'] - geo['payBottom'] < 90 and abs(geo['holdW'] - geo['payW']) < 2, geo)
+    check('book page: the choice reads as the owner asked (or + label + hint)', p.locator('.hold-or').count() == 1 and 'pay once at the end' in p.inner_text('#trn-hold') and 'pay for everything together at checkout' in p.inner_text('.hold-hint'), p.inner_text('.hold-choice'))
+    pay_amt = num(p.inner_text('#trn-pay'))
+    pg.scan('book one way with the new option ' + tag, 'v122-book-oneway-' + vp)
+    p.fill('#px-n0', ''); hold()
+    check('Add other services validates passengers exactly like Pay (no name -> error, nothing stored)', p.locator('#px-err:not(.hidden)').count() == 1 and pg.ev('() => !OT.store.get("journey")') and pg.ev('() => OT.router.current().name') == 'trains')
+    fill_pax(p)
+    hold()
+    p.wait_for_function('() => OT.router.current().name === "results"', timeout=5000)
+    j = pg.ev('() => OT.store.get("journey")')
+    h = j.get('hold') or {}
+    leg = (h.get('legs') or [{}])[0]
+    exp_train = leg.get('farePerPax', 0) * 2 + 20
+    check('Add other services: train kept in the trip unpaid (status HELD, no PNR, no booking, no payment)', j['train']['status'] == 'HELD' and not j.get('pnr') and len(h.get('legs', [])) == 1 and leg['no'] == '12011' and leg['cls'] == 'CC' and len(leg['pax']) == 2 and not pg.ev('() => (OT.store.get("bookings") || []).length') and not pg.ev('() => document.querySelector(".ps-overlay.show")'), [j['train'], h])
+    check('held train amount = the Pay-now amount (%d = fare × 2 + ₹20 fee)' % exp_train, exp_train == pay_amt and exp_train > 0, [exp_train, pay_amt])
+    p.wait_for_selector('[data-hold-banner]')
+    bt = p.inner_text('[data-hold-banner]')
+    check('planning screen banner: "Trains in your trip (not paid yet) · ₹X · Pay everything at checkout"', 'Trains in your trip (not paid yet)' in bt and pg.ev('n => OT.inr(n)', exp_train) in bt and 'Pay everything at checkout' in bt, bt[:200])
+    check('planning screen is "Now plan your stay" for the destination (results for CDG)', pg.ev('() => OT.router.current().params.query.to') == 'CDG' and p.locator('[data-tour="trace"]').count() == 1)
+    pg.wait_run()
+    pg.scan('planning banner ' + tag, 'v122-results-banner-' + vp)
+    p.click('[data-ref="H-CDG-01"] [data-add]'); p.wait_for_timeout(250)
+    p.click('[data-tab="cab"]'); p.wait_for_timeout(200)
+    p.click('[data-ref="C-CDG-01"] [data-add]'); p.wait_for_timeout(250)
+    p.click('[data-panel="cab"] .tx-card[data-mode="auto"] [data-tx-meter]') if p.locator('[data-panel="cab"] .tx-card[data-mode="auto"] [data-tx-meter]').count() and False else None
+    svc = pg.ev('() => { const j = OT.store.get("journey"); return j.items.filter(i => i.status === "selected").reduce((s, i) => s + OT.agents.lineFor(i, j).amount, 0); }')
+    # before payment: nothing in Bookings, partner or admin
+    pg.go('bookings', 300)
+    check('before payment: Bookings & refunds has no booking card, only the "not paid yet" note', p.locator('[data-bk-unpaid]').count() == 1 and p.locator('.bk-list').count() == 0 and p.locator('[data-cancel]').count() == 0 and 'not paid yet' in p.inner_text('[data-bk-unpaid]'))
+    live = pg.ev('() => { const a = OT.data.analytics.live(); return { p101: a.p101.length, gtv: a.gtv, trains: a.trains.length }; }')
+    check('before payment: partner P-101 sees no booking, admin GTV 0 and no train tickets', live == {'p101': 0, 'gtv': 0, 'trains': 0}, live)
+    pg.ev('() => OT.store.set("user", { name: "Rajinder Singh", email: "p101.shivalik@demo.onetrip", role: "partner", partnerId: "P-101", org: "Hotel Shivalik View", personaId: "partner", simulated: true })')
+    pg.go('partner/bookings', 400)
+    check('before payment: partner dashboard lists no live OneTrip booking', p.locator('#view .pill-live').count() == 0)
+    pg.ev('() => OT.store.set("user", undefined)')
+    # My Journey
+    pg.go('journey', 400)
+    check('My Journey: train stop shows "Not paid yet — pay at checkout"', p.locator('[data-ev="dep"] [data-unpaid-badge]').count() == 1 and 'Not paid yet' in p.inner_text('[data-tour="ticket"]'))
+    check('My Journey: prominent "Review & pay for everything" button', p.locator('[data-hold-note] [data-pay-all]').is_visible() and p.locator('.cost [data-pay-all]').count() == 1)
+    rd = pg.ev('() => OT.agents.readiness(OT.store.get("journey")).parts.find(x => x.id === "ticket")')
+    check('Trip Readiness: unpaid ticket = 80% (24/30), labelled not paid yet', rd['state'] == 'unpaid' and abs(rd['pts'] - 24) < 0.01 and 'not paid yet' in p.inner_text('.readiness'), rd)
+    due = num(p.inner_text('.cost .due'))
+    check('Trip cost "To pay now" = train + services (%d + %d)' % (exp_train, svc), due == exp_train + svc, due)
+    check('PNR shows "—" (none issued yet), no "null"', 'null' not in p.inner_text('#view') and 'PNR\n—' in p.inner_text('.ticket-meta'))
+    pg.scan('journey unpaid ' + tag, 'v122-journey-unpaid-' + vp)
+    # reload persists
+    p.reload(); p.wait_for_function('() => window.OT && OT.router.current()'); p.wait_for_timeout(400)
+    check('reload: unpaid train, services and the unpaid note persist', pg.ev('() => !!(OT.store.get("journey").hold && OT.store.get("journey").train.status === "HELD")') and p.locator('[data-hold-note]').count() == 1)
+    # Checkout
+    pg.go('checkout', 400)
+    tl = p.locator('[data-train-line]').count()
+    tamt = pg.ev('() => +document.querySelector("[data-train-line] .co-amt span").innerText.replace(/[^0-9]/g, "")')
+    tot = pg.ev('() => +document.querySelector(".co-totals .grand strong").innerText.replace(/[^0-9]/g, "")')
+    check('checkout: one train line (%d) + the services, one grand total (%d)' % (tamt, tot), tl == 1 and tamt == exp_train and tot == exp_train + svc and p.locator('.co-line:not(.co-train-line)').count() == 2, [tl, tamt, tot])
+    check('checkout: Pay button = grand total', num(p.inner_text('#pay-btn')) == tot)
+    check('checkout: train line says the PNR is issued after payment', 'PNR is issued when you pay' in p.inner_text('[data-train-line]'))
+    pg.scan('checkout trains + services ' + tag, 'v122-checkout-oneway-' + vp)
+    p.click('#pay-btn'); p.wait_for_selector('.modal-backdrop.show .confirm-lines')
+    cl = p.inner_text('.modal-backdrop.show .confirm-lines')
+    check('confirm dialog lists the train, the services and the total', '12011' in cl and 'Hotel Shivalik View' in cl and pg.ev('n => OT.inr(n)', tot) in cl, cl[:400])
+    check('still nothing booked while the confirm dialog is open', not pg.ev('() => (OT.store.get("bookings") || []).length'))
+    pg.modal_ok(keep_success=True); p.wait_for_selector('.ps-overlay.show .ps-card', timeout=8000)
+    p.wait_for_function('() => { const o = document.querySelector(".ps-overlay"); return o && getComputedStyle(o).opacity === "1"; }', timeout=5000); p.wait_for_timeout(600)
+    ps = p.inner_text('.ps-card')
+    pnrs = re.findall(r'PNR\s*(\d{10})', ps)
+    check('ONE payment pop-up: amount = grand total, the train PNR and the hotel/cab refs', num(p.inner_text('.ps-amount')) == tot and len(pnrs) == 1 and 'OT-HTL-' in ps and 'OT-CAB-' in ps, ps[:400])
+    pg.scan('pop-up pay once ' + tag, 'v122-popup-oneway-' + vp)
+    bk = pg.ev('() => OT.store.get("bookings")')
+    j = pg.ev('() => OT.store.get("journey")')
+    trb = [b for b in bk if b['type'] == 'train']
+    check('after payment: train is a normal paid booking (PNR from the pop-up, amount, same transaction as the services)', len(trb) == 1 and trb[0]['pnr'] == pnrs[0] and trb[0]['amount'] == exp_train and len({b['txn'] for b in bk}) == 1 and sum(b['amount'] for b in bk) == tot and trb[0]['journeyId'] == j['id'], [(b['type'], b['amount'], b.get('pnr')) for b in bk])
+    check('after payment: journey has the PNR, train no longer HELD, no hold left', j.get('pnr') == pnrs[0] and j['train']['status'] in ('CNF', 'RAC', 'WL') and not j.get('hold'), [j.get('pnr'), j['train']['status']])
+    p.click('[data-ps-done]'); p.wait_for_timeout(300)
+    pg.go('bookings', 300)
+    check('Bookings & refunds: the train PNR is listed and cancellable, no unpaid note', pnrs[0] in p.inner_text('.bk-list') and p.locator('[data-cancel]').count() == 3 and p.locator('[data-bk-unpaid]').count() == 0)
+    live = pg.ev('() => { const a = OT.data.analytics.live(); return { p101: a.p101.length, gtv: a.gtv, trains: a.trains.length }; }')
+    check('after payment: partner P-101 sees the hotel, admin counts the ticket and the add-on GTV', live['p101'] == 1 and live['trains'] == 1 and live['gtv'] == svc, live)
+    pg.go('itinerary-print', 400)
+    check('one-page itinerary shows the PNR', pnrs[0] in p.inner_text('.itin-sheet'))
+    pg.ev('() => OT.store.set("user", { name: "Sunita Sharma", phone: "+91 75898 02655", role: "traveller", email: "sunita@demo.onetrip" })')
+    pg.go('journey', 300)
+    p.click('.itin-card [data-it="wa"]'); p.wait_for_timeout(300)
+    op = pg.ev('() => window.__opened')
+    check('WhatsApp opens wa.me/917589802655 with the PNR in the text', op and op[-1].startswith('https://wa.me/917589802655?text=') and pnrs[0] in op[-1], op[-1:])
+    # "Add return train" still works afterwards
+    ar = p.locator('[data-add-return]').first
+    check('one way paid via checkout: "Add return train" is offered', ar.count() == 1)
+    pg.go(pg.ev('() => OT.views.journey.addReturnPath()'), 400)
+    p.locator('.trn .cls-tile:not([disabled])').first.click(); p.wait_for_selector('#pax-form')
+    check('attach-return book page also offers pay later', p.locator('#trn-hold').count() == 1)
+    fill_pax(p); p.click('#trn-pay'); pg.modal_ok()
+    j = pg.ev('() => OT.store.get("journey")')
+    check('Add return train after a pay-once checkout: return booked into the same journey', j.get('returnTrain') and re.match(r'^\d{10}$', j['returnTrain'].get('pnr') or '') and any(b.get('leg') == 'return' for b in pg.ev('() => OT.store.get("bookings")')))
+    pg.no_errors('v1.2.2 one way ' + vp)
+
+    # ---- B. round trip: hold both, replace the outward, pay once, two PNRs
+    fresh()
+    d1, d2 = plus(6), plus(9)
+    pg.go('trains?from=NDLS&to=CDG&trip=round&date=%s&ret=%s&pax=2' % (d1, d2), 400)
+    p.locator('.trn[data-train="12011"] [data-book="CC"]').first.click(); p.wait_for_timeout(400)
+    p.locator('.trn[data-train="12012"] [data-book="CC"]').first.click(); p.wait_for_selector('#pax-form')
+    gt = pg.ev('() => +document.querySelector("[data-fare-legs] .grand strong").innerText.replace(/[^0-9]/g, "")')
+    check('round trip book page: the choice is under "Pay … once & book both"', p.locator('#trn-hold').count() == 1 and 'once' in p.inner_text('#trn-pay'))
+    pg.scan('book round trip with option ' + tag, 'v122-book-round-' + vp)
+    fill_pax(p); hold()
+    p.wait_for_function('() => OT.router.current().name === "results"', timeout=5000)
+    j = pg.ev('() => OT.store.get("journey")')
+    check('round trip held: outward + return in the trip unpaid, no PNRs', [l['leg'] for l in j['hold']['legs']] == ['outward', 'return'] and j['returnTrain']['status'] == 'HELD' and not j['returnTrain'].get('pnr') and not j.get('pnr') and not pg.ev('() => (OT.store.get("bookings") || []).length'))
+    check('banner amount = round-trip total (%d)' % gt, pg.ev('n => OT.inr(n)', gt) in p.inner_text('[data-hold-banner]') and 'Return' in p.inner_text('[data-hold-banner]'))
+    jid = j['id']
+    pg.wait_run(); p.click('[data-ref="H-CDG-01"] [data-add]'); p.wait_for_timeout(250)
+    # go back and pick a different outward train: replaced, not duplicated; the hotel stays
+    pg.go('trains?from=NDLS&to=CDG&trip=round&date=%s&ret=%s&pax=2' % (d1, d2), 400)
+    other = pg.ev('() => [...document.querySelectorAll(".trn")].map(t => t.dataset.train).find(n => n !== "12011" && document.querySelector(\'.trn[data-train="\' + n + \'"] .cls-tile:not([disabled])\'))')
+    p.locator('.trn[data-train="%s"] .cls-tile:not([disabled])' % other).first.click(); p.wait_for_timeout(400)
+    p.locator('.trn[data-train="12012"] [data-book="CC"]').first.click(); p.wait_for_selector('#pax-form')
+    gt2 = pg.ev('() => +document.querySelector("[data-fare-legs] .grand strong").innerText.replace(/[^0-9]/g, "")')
+    fill_pax(p); hold(); p.wait_for_timeout(300)
+    j = pg.ev('() => OT.store.get("journey")')
+    check('picking a different train replaces the unpaid one (same journey, 2 legs, hotel kept)', j['id'] == jid and len(j['hold']['legs']) == 2 and j['hold']['legs'][0]['no'] == other and j['train']['no'] == other and any(i['refId'] == 'H-CDG-01' for i in j['items']), [j['id'] == jid, [l['no'] for l in j['hold']['legs']], [i['refId'] for i in j['items']]])
+    pg.go('journey', 400)
+    check('My Journey: both train stops unpaid (outward + return) with Review & pay for everything', p.locator('[data-ev="dep"] [data-unpaid-badge]').count() == 1 and p.locator('[data-ev="rdep"] [data-unpaid-badge]').count() == 1 and p.locator('[data-pay-all]').count() >= 1)
+    rdr = pg.ev('() => OT.agents.readiness(OT.store.get("journey")).parts.find(x => x.id === "ret")')
+    check('Trip Readiness: unpaid return = 80% of its weight', rdr['state'] == 'unpaid' and abs(rdr['pts'] - 8) < 0.01, rdr)
+    pg.scan('journey round unpaid ' + tag, 'v122-journey-round-' + vp)
+    pg.go('checkout', 400)
+    amts = pg.ev('() => [...document.querySelectorAll("[data-train-line]")].map(l => [l.dataset.trainLine, +l.querySelector(".co-amt span").innerText.replace(/[^0-9]/g, "")])')
+    svc = pg.ev('() => { const j = OT.store.get("journey"); return j.items.filter(i => i.status === "selected").reduce((s, i) => s + OT.agents.lineFor(i, j).amount, 0); }')
+    tot = pg.ev('() => +document.querySelector(".co-totals .grand strong").innerText.replace(/[^0-9]/g, "")')
+    check('checkout: outward + return lines (%s) + hotel = total %d' % (amts, tot), [a[0] for a in amts] == ['outward', 'return'] and sum(a[1] for a in amts) == gt2 and tot == gt2 + svc, [amts, gt2, svc, tot])
+    pg.scan('checkout round ' + tag, 'v122-checkout-round-' + vp)
+    p.click('#pay-btn'); cl = p.inner_text('.modal-backdrop.show .confirm-lines')
+    check('confirm lists Outward, Return and the hotel', 'Outward' in cl and 'Return' in cl and 'Hotel Shivalik View' in cl, cl[:300])
+    pg.modal_ok(keep_success=True); p.wait_for_selector('.ps-overlay.show .ps-card', timeout=8000)
+    ps = p.inner_text('.ps-card'); pnrs = re.findall(r'PNR\s*(\d{10})', ps)
+    check('one payment, pop-up with BOTH PNRs and the hotel ref', len(set(pnrs)) == 2 and 'OT-HTL-' in ps and num(p.inner_text('.ps-amount')) == tot, ps[:400])
+    p.click('[data-ps-done]'); p.wait_for_timeout(300)
+    bk = pg.ev('() => OT.store.get("bookings")')
+    trb = [b for b in bk if b['type'] == 'train']
+    check('two train bookings Outward/Return, one transaction with the hotel', sorted(b.get('leg') for b in trb) == ['outward', 'return'] and len({b['txn'] for b in bk}) == 1 and sum(b['amount'] for b in bk) == tot)
+    pg.go('bookings', 300)
+    txt = p.inner_text('.bk-list')
+    check('Bookings & refunds: Outward and Return labels with both PNRs', 'Outward' in txt and 'Return' in txt and all(x in txt for x in pnrs))
+    rref = [b for b in trb if b['leg'] == 'return'][0]['ref']
+    pg.ev('r => { OT.views.bookings.cancel(r); }', rref); pg.modal_ok()
+    bk = pg.ev('() => OT.store.get("bookings")')
+    st = {b.get('leg'): b['status'] for b in bk if b['type'] == 'train'}
+    check('each PNR cancellable independently (return cancelled, outward still confirmed)', st == {'outward': 'confirmed', 'return': 'cancelled'}, st)
+    pg.no_errors('v1.2.2 round trip ' + vp)
+
+    # ---- C. remove the unpaid train (confirm), and with nothing else in the trip
+    fresh()
+    book_page('trains?from=NDLS&to=CDG&date=%s&pax=1' % plus(5), '12011', 'CC'); fill_pax(p); hold()
+    pg.wait_run(); p.click('[data-ref="H-CDG-01"] [data-add]'); p.wait_for_timeout(250)
+    pg.go('journey', 400)
+    p.click('[data-hold-note] [data-hold-remove="outward"]'); p.wait_for_selector('.modal-backdrop.show')
+    check('remove asks to confirm (lists the train, nothing to refund)', '12011' in p.inner_text('.modal-backdrop.show') and 'nothing to refund' in p.inner_text('.modal-backdrop.show'))
+    p.locator('.modal-backdrop.show .modal-foot .btn').first.click(); p.wait_for_timeout(300)
+    check('"Keep it" keeps the unpaid train', pg.ev('() => !!OT.store.get("journey").hold'))
+    p.click('[data-hold-note] [data-hold-remove="outward"]'); pg.modal_ok()
+    j = pg.ev('() => OT.store.get("journey")')
+    check('removed: the trip keeps the hotel as a stay without a train, no bookings', j and j.get('kind') == 'trip' and not j.get('train') and not j.get('hold') and any(i['refId'] == 'H-CDG-01' for i in j['items']) and not pg.ev('() => (OT.store.get("bookings") || []).length'), j and [j.get('kind'), j.get('train')])
+    check('My Journey after removal: "Add a train to this trip" again', p.locator('#add-train').count() == 1)
+    # standalone stay -> "Add a train" -> the same two options; holding keeps the stay
+    pg.go(pg.ev('() => document.querySelector("#add-train").getAttribute("href").slice(2)'), 400)
+    p.locator('.trn .cls-tile:not([disabled])').first.click(); p.wait_for_selector('#pax-form')
+    check('standalone trip "Add a train": book page offers Pay now and the pay-once option', p.locator('#trn-pay').count() == 1 and p.locator('#trn-hold').count() == 1)
+    jid = j['id']; fill_pax(p); hold()
+    j = pg.ev('() => OT.store.get("journey")')
+    check('standalone trip + held train: same journey, hotel kept, train unpaid', j['id'] == jid and j['train']['status'] == 'HELD' and any(i['refId'] == 'H-CDG-01' for i in j['items']))
+    # past departure at checkout: blocked
+    pg.ev('() => OT.store.update("journey", j => { const y = OT.data.travel.addDays(OT.data.rail.ymd(new Date()), -1); j.hold.legs[0].date = y; j.train.date = y; return j; })')
+    pg.go('checkout', 400)
+    check('train departed by checkout: clear message, Pay disabled', p.locator('[data-hold-problem]').count() == 1 and 'left on' in p.inner_text('[data-hold-problem]') and p.locator('#pay-btn[disabled]').count() == 1, p.inner_text('[data-hold-problem]') if p.locator('[data-hold-problem]').count() else '')
+    r = pg.ev('() => OT.views.checkout.pay()')
+    check('…and paying anyway is refused, nothing booked', r is False and not pg.ev('() => (OT.store.get("bookings") || []).length'))
+    pg.go('journey', 300)
+    check('My Journey shows the departed warning too', p.locator('[data-hold-problem]').count() == 1)
+    pg.scan('departed unpaid train ' + tag)
+    p.click('[data-hold-note] [data-hold-remove="outward"]'); pg.modal_ok()
+    # nothing else in the trip -> journey cleared
+    fresh()
+    book_page('trains?from=NDLS&to=CDG&date=%s&pax=1' % plus(5), '12011', 'CC'); fill_pax(p); hold()
+    pg.go('journey', 300)
+    p.click('[data-hold-note] [data-hold-remove="outward"]'); pg.modal_ok()
+    check('removing the only thing in the trip empties My Journey', pg.ev('() => !OT.store.get("journey")') and p.locator('.journey-empty').count() == 1)
+    pg.no_errors('v1.2.2 remove/departed ' + vp)
+
+    # ---- D. pay-now path unchanged
+    fresh()
+    book_page('trains?from=NDLS&to=CDG&date=%s&pax=2' % plus(5), '12011', 'CC'); fill_pax(p)
+    p.click('#trn-pay'); pg.modal_ok()
+    j = pg.ev('() => OT.store.get("journey")'); bk = pg.ev('() => OT.store.get("bookings")')
+    check('Pay now unchanged: PNR at once, ticket page, one train booking, no hold', len(bk) == 1 and bk[0]['type'] == 'train' and re.match(r'^\d{10}$', j.get('pnr') or '') and not j.get('hold') and pg.ev('() => OT.router.current().params.sub') == 'ticket' and p.locator('#plan-stay').count() == 1)
+
+    # ---- E. assistant / voice path, signed-in persona in Hindi
+    fresh()
+    pg.ev('() => OT.auth.signInPersona("sunita", { quiet: true })'); p.wait_for_timeout(300)
+    m = pg.ev('() => { OT.assistant.open(); return OT.assistant.ask("book a train from Delhi to Chandigarh"); }')
+    route = m['res']['actions'][0]['route']
+    pg.ev('() => OT.assistant.close()')
+    pg.go(route, 400)
+    check('assistant train answer -> train results with "I heard"', p.locator('.heard').count() == 1 and p.locator('.trn').count() > 0)
+    p.locator('.trn .cls-tile:not([disabled])').first.click(); p.wait_for_selector('#pax-form')
+    check('assistant path book page (Hindi): the pay-once option in Hindi', 'आख़िर में एक बार भुगतान' in p.inner_text('#trn-hold') and 'या' in p.inner_text('.hold-or'), p.inner_text('#trn-hold'))
+    pg.scan('book page hindi ' + tag, 'v122-book-hi-' + vp)
+    fill_pax(p); hold()
+    p.wait_for_selector('[data-hold-banner]')
+    check('Hindi banner', 'आपकी यात्रा में ट्रेनें' in p.inner_text('[data-hold-banner]'))
+    pg.go('journey', 300)
+    check('Hindi My Journey unpaid note and button', 'अभी भुगतान नहीं हुआ' in p.inner_text('[data-hold-note]') and 'सब कुछ देखें और भुगतान करें' in p.inner_text('[data-hold-note]'))
+    pg.scan('journey hindi unpaid ' + tag)
+    pg.go('checkout', 300)
+    pg.scan('checkout hindi unpaid ' + tag)
+    for lg in ('ta', 'bn'):
+        pg.ev('l => OT.i18n.setLang(l)', lg); pg.go('journey', 200)
+        pg.scan('journey %s unpaid %s' % (lg, tag))
+    pg.ev('() => OT.i18n.setLang("en")')
+    check('tour has the pay-once step', pg.ev('() => OT.tour.steps.some(s => s.target === \'[data-tour="pay-later"]\')'))
+    pg.no_errors('v1.2.2 assistant/hindi ' + vp)
+    pg.close()
+    if vp == 'desktop':
+        GROUP[0] = 'v1.2.2 tour ' + base[:4]
+        tp = Page(browser, base, vp)
+        try:
+            tour(tp, 'v122-' + vp)
+            check('tour shows the pay-once step on the book page', True)
+        finally:
+            tp.close()
+
+
 def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]; s.close(); return port
 
@@ -1843,6 +2104,12 @@ def main():
                             v121_verify(browser, base, vp)
                         except Exception:
                             check('verify v1.2.1 completed', False, ' | '.join(l.strip() for l in traceback.format_exc().splitlines() if 'e2e.py' in l or 'Error' in l)[:900])
+                    GROUP[0] = 'v1.2.2 ' + tag
+                    if want('v122'):
+                        try:
+                            v122(browser, base, vp)
+                        except Exception:
+                            check('v1.2.2 completed', False, ' | '.join(l.strip() for l in traceback.format_exc().splitlines() if 'e2e.py' in l or 'Error' in l)[:900])
             browser.close()
     finally:
         srv.terminate()

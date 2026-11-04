@@ -1094,3 +1094,38 @@ body.ps-open .modal-root { z-index: 106; }
 @media (min-width: 1101px) { .trn-form .trn-form-grid:has(> .date-pair.is-round) { grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr) minmax(0, 1.9fr) minmax(0, .8fr) minmax(0, .5fr) auto; } }
 @media (max-width: 1100px) { .trn-form .trn-form-grid > .date-pair.is-round { grid-column: 1 / -1; } }
 #trn-pay { white-space: normal; height: auto; min-height: 48px; line-height: 1.25; text-align: center; }
+
+/* ---------- v1.2.2: "Add other services, pay once" (train kept in the trip, unpaid) ---------- */
+.hold-choice { margin-top: 4px; }
+.hold-or { display: flex; align-items: center; gap: 10px; margin: 12px 0 10px; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; }
+.hold-or::before, .hold-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.hold-btn { white-space: normal; height: auto; min-height: 48px; line-height: 1.25; text-align: left; justify-content: flex-start; gap: 10px; border: 1.5px solid var(--blue); color: var(--blue-600); background: var(--blue-50); font-weight: 600; }
+.hold-btn:hover { background: var(--blue-100); }
+.hold-btn .ic { flex: none; }
+.hold-hint { display: flex; gap: 6px; align-items: flex-start; margin: 8px 2px 0; }
+.hold-hint .ic { flex: none; margin-top: 2px; }
+.hold-banner { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; margin: 0 0 14px; padding: 12px 14px; border: 1px solid #F5D2AE; border-left: 4px solid var(--saffron); border-radius: var(--r); background: var(--saffron-50); }
+.hold-banner > .ic { color: var(--saffron-700); }
+.hold-banner .hb-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hold-banner .hb-main strong { color: var(--navy); }
+.hold-banner.is-bad { border-left-color: var(--bad); background: var(--bad-50); border-color: #F2C4C0; }
+.hold-note { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 12px 14px; border: 1px solid #F5D2AE; border-left: 4px solid var(--saffron); border-radius: var(--r); background: var(--saffron-50); }
+.hold-note.is-bad { border-left-color: var(--bad); }
+.hold-note p { margin: 0; }
+.hn-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.hn-head strong { font-size: 1.15rem; color: var(--navy); }
+.hn-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.co-hold-intro { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--saffron-50); color: var(--saffron-700); }
+.co-hold-intro .ic { flex: none; margin-top: 3px; }
+.co-train-line { border-left: 3px solid var(--saffron); }
+.co-hold-st, .co-hold-act { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.co-hold-act .btn-link { padding: 0; min-height: 0; }
+.bk-unpaid { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 14px; margin-bottom: 14px; border-left: 4px solid var(--saffron); }
+.bk-unpaid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+@media (max-width: 600px) {
+  .hold-banner, .bk-unpaid { grid-template-columns: 24px minmax(0, 1fr); }
+  .hold-banner > .btn, .bk-unpaid > .btn { grid-column: 1 / -1; justify-self: stretch; }
+  .hn-actions > .btn-accent { flex: 1 1 100%; }
+}
+#pay-btn { white-space: normal; height: auto; min-height: 48px; line-height: 1.25; text-align: center; }
+.hold-btn.btn-lg { font-size: 1rem; padding: 10px 14px; }

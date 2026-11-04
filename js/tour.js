@@ -78,6 +78,11 @@
         if (b) b.click();
         return waitFor(function () { return document.querySelector('[data-tour="pax"]'); }, 4000);
       } },
+    { title: 'Or: add the stay first, pay once', text: 'Right below “Pay”, a second choice: “Add hotel, transport, food & sightseeing — pay once at the end”. The train (or both trains of a round trip) then waits in the trip unpaid, with no PNR; the planning screen opens, and checkout charges trains and services in one payment and issues the PNR. For this demo we pay for the train now.',
+      target: '[data-tour="pay-later"]', enter: function () {
+        var el = document.querySelector('[data-tour="pay-later"]'); if (el) el.scrollIntoView({ block: 'center' });
+        return OT.sleep(200);
+      } },
     { title: 'Human-in-the-loop payment', text: 'Nothing is booked until the traveller confirms. Train number, stations, date, class, names and the total are shown exactly as booked (never translated).',
       target: '.modal', enter: function () {
         var b = document.querySelector('#trn-pay'); if (b) b.click();

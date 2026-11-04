@@ -344,7 +344,7 @@
     var r = liveReturn(j);
     if (r) {
       ev.push({ id: 'rdep', kind: 'rdep', when: dt(r.date, r.dep), station: r.from, icon: 'train', seg: 'train',
-        title: T('tl.return', 'Return train from {station}', { station: D().stationName(r.from, L) }), sub: r.no + ' ' + r.name + ' · PNR ' + r.pnr });
+        title: T('tl.return', 'Return train from {station}', { station: D().stationName(r.from, L) }), sub: r.no + ' ' + r.name + (r.pnr ? ' · PNR ' + r.pnr : ' · ' + T('hold.badge', 'Not paid yet')) });
       var rt = D().trains[r.no];
       ev.push({ id: 'rarr', kind: 'rarr', when: dt(r.arrDate || D().addDays(r.date, rt ? rt.arrOffset : 0), r.arr), station: r.to, icon: 'pin', seg: null,
         title: T('tl.home', 'Arrive {station}', { station: D().stationName(r.to, L) }), sub: r.no });
@@ -419,8 +419,8 @@
     if (j && !j.train && j.kind === 'trip') return tripReadiness(j);
     if (!j || !j.train) return { score: 0, parts: [] };
     var items = activeItems(j);
-    var tf = { CNF: 1, RAC: 0.5, WL: 0.25 }[j.train.status] || 0;
-    parts.push({ id: 'ticket', w: W.ticket, pts: W.ticket * tf, state: tf === 1 ? 'booked' : tf > 0 ? 'confirm' : j.train.status === 'CANCELLED' ? 'cancelled' : 'missing' });
+    var tf = { CNF: 1, RAC: 0.5, WL: 0.25, HELD: 0.8 }[j.train.status] || 0;   // v1.2.2: a train kept in the trip unpaid counts like any planned item (80%)
+    parts.push({ id: 'ticket', w: W.ticket, pts: W.ticket * tf, state: j.train.status === 'HELD' ? 'unpaid' : tf === 1 ? 'booked' : tf > 0 ? 'confirm' : j.train.status === 'CANCELLED' ? 'cancelled' : 'missing' });
     function best(filter) {
       var c = items.filter(filter).map(credit).sort(function (a, b) { return b.f - a.f; })[0];
       return c || { f: 0, state: 'missing' };
@@ -432,8 +432,8 @@
     parts.push({ id: 'transfer', w: W.transfer, pts: W.transfer * tr.f, state: tr.state });
     var meal = best(function (i) { return i.type === 'food'; });
     parts.push({ id: 'meal', w: W.meal, pts: W.meal * meal.f, state: meal.state });
-    var rt = liveReturn(j), rf = rt ? ({ CNF: 1, RAC: 0.5, WL: 0.25 }[rt.status || 'CNF'] || 0) : 0;
-    parts.push({ id: 'ret', w: W.ret, pts: W.ret * rf, state: !rt ? 'missing' : rf === 1 ? 'booked' : 'confirm' });
+    var rt = liveReturn(j), rf = rt ? ({ CNF: 1, RAC: 0.5, WL: 0.25, HELD: 0.8 }[rt.status || 'CNF'] || 0) : 0;
+    parts.push({ id: 'ret', w: W.ret, pts: W.ret * rf, state: !rt ? 'missing' : rt.status === 'HELD' ? 'unpaid' : rf === 1 ? 'booked' : 'confirm' });
     var conf = OT.agents.itinerary(j).conflicts, open = conf.filter(function (c) { return !c.resolved; }).length;
     parts.push({ id: 'conflicts', w: W.conflicts, pts: open ? 0 : W.conflicts, state: open ? 'open' : 'booked', open: open });
     var score = Math.round(parts.reduce(function (s, p) { return s + p.pts; }, 0));
@@ -576,13 +576,13 @@
       } else if (intent === 'pnr') {
         r.citations = cite('train');
         r.text = TL('support.pnr', 'PNR {pnr}: train {train} {name}, {from} {dep} → {to} {arr} on {date}, coach {coach}, seats {seats}, status {status} (sample, not live).', {
-          pnr: j.pnr, train: tr.no, name: tr.name, from: tr.from, dep: tr.dep, to: tr.to, arr: tr.arr, date: fmtDate(tr.date), coach: tr.coach, seats: tr.seats.join(', '), status: st });
+          pnr: j.pnr || '—', train: tr.no, name: tr.name, from: tr.from, dep: tr.dep, to: tr.to, arr: tr.arr, date: fmtDate(tr.date), coach: tr.coach, seats: tr.seats.join(', '), status: st });
       } else if (intent === 'status') {
         if (mine.length) {
           var list = mine.map(function (b) { return b.title + ' (' + b.ref + '): ' + S('status.' + b.status, b.status); }).join('; ');
-          r.text = TL('support.status', 'You have {n} OneTrip booking(s): {list}. Your train {train} (PNR {pnr}) is {tstatus} (sample).', { n: mine.length, list: list, train: tr.no, pnr: j.pnr, tstatus: st });
+          r.text = TL('support.status', 'You have {n} OneTrip booking(s): {list}. Your train {train} (PNR {pnr}) is {tstatus} (sample).', { n: mine.length, list: list, train: tr.no, pnr: j.pnr || '—', tstatus: st });
         } else {
-          r.text = TL('support.statusNone', 'No OneTrip bookings yet. Your train {train} (PNR {pnr}) is {tstatus} (sample). Add a hotel or cab from Plan trip.', { train: tr.no, pnr: j.pnr, tstatus: st });
+          r.text = TL('support.statusNone', 'No OneTrip bookings yet. Your train {train} (PNR {pnr}) is {tstatus} (sample). Add a hotel or cab from Plan trip.', { train: tr.no, pnr: j.pnr || '—', tstatus: st });
         }
         r.actions.push({ label: S('nav.bookings', 'Bookings & refunds'), route: 'bookings' });
       }

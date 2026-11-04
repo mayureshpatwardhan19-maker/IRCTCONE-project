@@ -365,6 +365,7 @@
       (tr.status === 'PLANNED' ? '<p class="note note-warn small">' + OT.icon('train', 14) + ' ' + OT.esc(t('res.planned', 'Suggested train, not booked yet.')) + ' <a href="#/' + OT.trains.path({ from: tr.from, to: tr.to, date: tr.date, pax: j.passengers }) + '">' + OT.esc(t('res.bookTrain', 'Book the train first')) + '</a></p>' : '') + '</div>' +
       '<div class="row-wrap"><a class="btn btn-ghost btn-sm" href="#/home?to=' + to + '">' + OT.icon('edit', 15) + OT.esc(t('res.edit', 'Edit search')) + '</a>' +
       '<button type="button" class="btn btn-ghost btn-sm" id="rerun">' + OT.icon('refresh', 15) + OT.esc(t('res.rerun', 'Run agents again')) + '</button></div></div>' +
+      (OT.trainHold ? OT.trainHold.banner(j) : '') +
       '<div class="card res-filter" id="res-filter">' + OT.budget.html({ id: 'rb', lo: j.budgetMin || OT.budget.MIN, hi: j.budget || OT.budget.MAX }) + '</div>' +
       '<div class="res-grid">' +
       '<aside class="trace-panel card" id="trace" aria-live="polite" data-tour="trace"></aside>' +

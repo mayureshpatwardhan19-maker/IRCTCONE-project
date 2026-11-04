@@ -81,6 +81,9 @@
       '<button type="button" class="btn btn-ghost btn-sm" data-ticket="">' + OT.icon('headset', 15) + OT.esc(t('bk.help', 'Raise support ticket')) + '</button></div>' +
       (j && j.pnr && j.train && !all.some(function (b) { return b.type === 'train' && b.pnr === j.pnr; }) ? '<div class="co-ticket card-flat small bk-train">' + OT.icon('train', 18) + '<div><strong>' + OT.esc(t('co.ticket', 'Train ticket')) + ' ' + keep(j.train.no) + ' · PNR ' + keep(j.pnr) + '</strong>' +
         '<span class="xs muted">' + OT.esc(t('bk.trainNote', 'Managed on IRCTC under railway rules. Cancel or refund the ticket on IRCTC.')) + '</span></div>' + OT.badge('confirmed', t('status.cnf', 'CNF')) + '</div>' : '') +
+      (OT.trainHold && OT.trainHold.get(j) ? '<div class="card-flat small bk-unpaid" data-bk-unpaid>' + OT.icon('train', 18) + '<div><strong>' + OT.esc(t('hold.bkTitle', '{n} train(s) in your trip, not paid yet', { n: OT.trainHold.get(j).legs.length })) + '</strong>' +
+        '<span class="xs muted">' + OT.esc(t('hold.bkSub', 'They are not bookings yet: the PNR is issued when you pay at checkout, and only then can they be cancelled here.')) + '</span></div>' +
+        '<a class="btn btn-accent btn-sm" href="#/checkout">' + OT.esc(t('hold.payAll', 'Review & pay for everything')) + '</a></div>' : '') +
       '<div class="tabs" role="tablist">' + tabs.map(function (tb) {
         var n = all.filter(function (b) { return tb[0] === 'all' || (tb[0] === 'active' ? b.status === 'confirmed' : b.status !== 'confirmed'); }).length;
         return '<button type="button" class="tab" role="tab" data-f="' + tb[0] + '" aria-selected="' + (filter === tb[0]) + '">' + OT.esc(t(tb[1], tb[2])) + ' <span class="tab-n">' + n + '</span></button>';

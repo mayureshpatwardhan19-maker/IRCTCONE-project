@@ -357,8 +357,16 @@
         return '<label class="pay-m' + (method === m[0] ? ' on' : '') + '"><input type="radio" name="tpm" value="' + m[0] + '"' + (method === m[0] ? ' checked' : '') + '>' + OT.icon(m[1], 18) + '<span><strong>' + OT.esc(t(m[2], m[3])) + '</strong><span class="xs muted">' + (m[0] === 'upi' ? 'traveller@upi-sim' : 'XXXX XXXX XXXX 4242') + '</span></span></label>';
       }).join('') + '</div>' +
       '<p class="xs muted">' + OT.esc(t('trn.irctcNote', 'Final booking happens on IRCTC — simulated here. No money moves.')) + '</p>' +
-      '<button type="button" class="btn btn-accent btn-lg btn-block" id="trn-pay">' + OT.icon('lock', 18) + OT.esc(nT > 1 ? t('ret.pay', 'Pay {amt} once & book both (simulated)', { amt: OT.inr(grand) }) : t('trn.pay', 'Pay {amt} & book (simulated)', { amt: OT.inr(grand) })) + '</button></div></div></div></div>';
+      '<button type="button" class="btn btn-accent btn-lg btn-block" id="trn-pay">' + OT.icon('lock', 18) + OT.esc(nT > 1 ? t('ret.pay', 'Pay {amt} once & book both (simulated)', { amt: OT.inr(grand) }) : t('trn.pay', 'Pay {amt} & book (simulated)', { amt: OT.inr(grand) })) + '</button>' +
+      holdChoiceHTML(q) + '</div></div></div></div>';
     bindBook(el, q, tr, c);
+  }
+  /** v1.2.2: the second choice under "Pay": keep the train(s) in the trip unpaid, add services, pay once at checkout. */
+  function holdChoiceHTML(q) {
+    var attach = q.attach === 'return' && !q.rno;
+    return '<div class="hold-choice" data-tour="pay-later"><div class="hold-or" role="separator"><span>' + OT.esc(t('hold.or', 'or')) + '</span></div>' +
+      '<button type="button" class="btn btn-ghost btn-lg btn-block hold-btn" id="trn-hold">' + OT.icon('layers', 18) + '<span>' + OT.esc(attach ? t('hold.btnAttach', 'Add to my trip and pay later at checkout, with everything else') : t('hold.btn', 'Add hotel, transport, food & sightseeing — pay once at the end')) + '</span></button>' +
+      '<p class="xs muted hold-hint">' + OT.icon('info', 12) + ' ' + OT.esc(t('hold.hint', 'Your train choice is kept in your trip; you pay for everything together at checkout and the PNR is issued then.')) + '</p></div>';
   }
   function retSumHTML(tr, c) {
     return '<div class="card trn-sum trn-sum-ret" data-return-sum><span class="xs muted">' + OT.icon('refresh', 12) + ' ' + OT.esc(t('ret.title', 'Return train')) + '</span><strong><bdi class="keep">' + tr.no + '</bdi> ' + OT.esc(tr.name) + '</strong>' +
@@ -374,11 +382,11 @@
     return { no: tk.no, name: tk.name, from: tk.from, to: tk.to, date: tk.date, dep: tk.dep, arr: tk.arr, arrDate: tk.arrDate, cls: tk.cls, coach: cnf ? cnf.coach : '—',
       seats: (tk.passengers || []).map(function (p) { return p.berth ? String(p.berth) : p.status; }), status: tk.status, chance: tk.chance, fare: tk.total, pnr: tk.pnr, ref: ref, bookedViaOneTrip: true };
   }
-  function trainBooking(tk, ref, j, n, extra) {
+  function trainBooking(tk, ref, j, n, extra, methodLabel) {
     var u = OT.store.get('user') || {};
     return Object.assign({ ref: ref, journeyId: j.id, itemId: null, refId: null, type: 'train', partnerId: 'IRCTC', title: tk.no + ' ' + tk.name, provider: 'IRCTC (simulated)',
-      amount: tk.total, status: 'confirmed', paidAt: tk.bookedAt, method: method === 'card' ? 'Card (simulated)' : 'UPI (simulated)', city: tk.to, when: tk.date + 'T' + tk.dep,
-      txn: tk.txn, pnr: tk.pnr, lang: L(), guest: u.name || (bookState.pax[0] || {}).name, pax: n, ticket: tk, simulated: true }, extra || {});
+      amount: tk.total, status: 'confirmed', paidAt: tk.bookedAt, method: methodLabel || (method === 'card' ? 'Card (simulated)' : 'UPI (simulated)'), city: tk.to, when: tk.date + 'T' + tk.dep,
+      txn: tk.txn, pnr: tk.pnr, lang: L(), guest: u.name || ((tk.passengers || [])[0] || {}).name, pax: n, ticket: tk, simulated: true }, extra || {});
   }
   function bindBook(el, q, tr, c) {
     var sync = function () { bookState.pax = readPax(el); };
@@ -387,6 +395,16 @@
     OT.$$('[data-del]', el).forEach(function (b) { b.addEventListener('click', function () { sync(); if (bookState.pax.length < 2) return; bookState.pax.splice(+b.getAttribute('data-del'), 1); q.pax = bookState.pax.length; renderBook(el, q); }); });
     OT.$$('input[name="tpm"]', el).forEach(function (r) { r.addEventListener('change', function () { sync(); method = r.value; renderBook(el, q); }); });
     el.querySelector('#trn-pay').addEventListener('click', function () { pay(q); });
+    var hb = el.querySelector('#trn-hold'); if (hb) hb.addEventListener('click', function () { holdForLater(q); });
+  }
+  /** Same passenger check as Pay: '' when fine, else shows the error and returns false. */
+  function paxValid(el) {
+    bookState.pax = readPax(el);
+    var bad = bookState.pax.filter(function (p) { return !p.name || p.name.length < 2 || !(p.age >= 1 && p.age <= 120); });
+    var err = el.querySelector('#px-err');
+    if (bad.length) { err.textContent = t('trn.errPax', 'Enter a name and an age (1–120) for every passenger.'); err.classList.remove('hidden'); try { err.scrollIntoView({ block: 'center' }); } catch (e) { /* noop */ } return false; }
+    err.classList.add('hidden');
+    return true;
   }
   function code5() { var c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = ''; for (var i = 0; i < 5; i++) s += c.charAt(Math.floor(Math.random() * c.length)); return s; }
   function pay(q) {
@@ -397,11 +415,7 @@
     var rtr = q.rno ? R().train(q.rno, q.to, q.from, q.ret) : null, rc = rtr && rtr.classes.filter(function (x) { return x.cls === q.rcls; })[0];
     if (q.rno && !rc) return Promise.resolve(false);
     var attach = q.attach === 'return' && !rtr;
-    bookState.pax = readPax(el);
-    var bad = bookState.pax.filter(function (p) { return !p.name || p.name.length < 2 || !(p.age >= 1 && p.age <= 120); });
-    var err = el.querySelector('#px-err');
-    if (bad.length) { err.textContent = t('trn.errPax', 'Enter a name and an age (1–120) for every passenger.'); err.classList.remove('hidden'); return Promise.resolve(false); }
-    err.classList.add('hidden');
+    if (!paxValid(el)) return Promise.resolve(false);
     var n = bookState.pax.length, conv = method === 'card' ? 35 : 20, total = c.fare.total * n + conv + (rc ? rc.fare.total * n + conv : 0);
     var lines = [
       OT.esc(t('trip.train', 'Train')) + ': ' + keep(tr.no) + ' ' + OT.esc(tr.name),
@@ -439,7 +453,8 @@
         var prev = OT.store.get('journey');
         var j = D().journeyFromTicket(tk, { nights: nights });
         // "Add a train to this trip": a standalone trip to the same city keeps its hotel, transport, food and sights
-        if (prev && !prev.train && prev.kind === 'trip' && prev.scenario === tk.to) {
+        // (v1.2.2: so does a trip whose train was kept unpaid for checkout: paying now replaces that train)
+        if (prev && prev.scenario === tk.to && ((!prev.train && prev.kind === 'trip') || (prev.hold && !prev.pnr))) {
           j.items = (prev.items || []).slice(); j.budget = prev.budget || j.budget; j.budgetMin = prev.budgetMin; j.id = prev.id;
           if (prev.end) j.nights = Math.max(1, Math.round((R().parseYmd(prev.end) - R().parseYmd(tk.arrDate)) / 86400000)) || j.nights;
           if (prev.meterRides) j.meterRides = prev.meterRides.slice();
@@ -473,6 +488,7 @@
     tk.leg = 'return';
     if (!j || !j.train) { busy = false; OT.toast(t('ret.noJourney', 'No journey to attach the return to. Book the outward train first.'), 'error'); return tk; }
     j.returnTrain = returnFromTicket(tk, tk.ref);
+    if (j.hold) { j.hold.legs = (j.hold.legs || []).filter(function (l) { return l.leg !== 'return'; }); if (!j.hold.legs.length) delete j.hold; }
     OT.store.set('journey', j);
     OT.store.update('bookings', function (l) { return (l || []).concat([trainBooking(tk, tk.ref, j, n, { leg: 'return', title: t('ret.bkTitle', 'Return: {no} {name}', { no: tk.no, name: tk.name }) })]); });
     OT.state.lastCheckout = null; bookState = null; busy = false;
@@ -484,6 +500,169 @@
       refs: [{ icon: 'train', label: t('ret.retLbl', 'Return') + ' · ' + tk.no + ' ' + tk.name + ' · ' + tk.status, ref: 'PNR ' + tk.pnr }, { icon: 'checkCircle', label: t('ps2.bookingRef', 'OneTrip booking ref'), ref: tk.ref }]
     });
     return tk;
+  }
+
+  /* ---------------- v1.2.2: keep the train(s) in the trip unpaid, pay once at checkout ----------------
+   * journey.hold = { legs: [ { leg:'outward'|'return', no, name, type, from, to, date, dep, arr, arrDate, cls, farePerPax, chance, avail, pax:[…] } ], method, createdAt }
+   * journey.train / journey.returnTrain carry status 'HELD' (no PNR, no booking) until checkout issues the tickets.
+   * Unpaid legs are never in OT.store 'bookings', so Bookings & refunds, partner and admin GTV never count them.
+   */
+  function convFor(m) { return m === 'card' ? 35 : 20; }
+  function legOf(tr, c, leg, pax) {
+    return { leg: leg, no: tr.no, name: tr.name, type: tr.type, from: tr.from, to: tr.to, date: tr.date, dep: tr.dep, arr: tr.arr, arrDate: D().addDays(tr.date, tr.arrOffset),
+      cls: c.cls, farePerPax: c.fare.total, chance: R().chance(c.avail, tr.date), avail: c.avail.label, pax: pax.map(function (p) { return { name: p.name, age: p.age, gender: p.gender, pref: p.pref }; }) };
+  }
+  function legAmount(l, m) { return l.farePerPax * ((l.pax || []).length || 1) + convFor(m); }
+  function heldTrain(l, m) {
+    return { no: l.no, name: l.name, from: l.from, fromName: R().stations[l.from] ? R().stations[l.from].names.en : l.from, to: l.to, toName: R().stations[l.to] ? R().stations[l.to].names.en : l.to,
+      date: l.date, dep: l.dep, arr: l.arr, arrDate: l.arrDate, cls: l.cls, coach: '—', seats: [], status: 'HELD', fare: legAmount(l, m), chance: l.chance, held: true, pnr: null };
+  }
+  function holdOf(j) { j = j === undefined ? OT.store.get('journey') : j; return j && j.hold && Array.isArray(j.hold.legs) && j.hold.legs.length ? j.hold : null; }
+  /** '' when the held leg can still be booked, else a clear message. */
+  function legProblem(l) {
+    var depMs = new Date(l.date + 'T' + l.dep + ':00').getTime();
+    if (!(depMs > Date.now())) return t('hold.errLeft', 'Train {no} left on {date} at {dep}, so it can no longer be booked. Remove it from your trip or choose another train.', { no: l.no, date: OT.fmtDate(l.date), dep: l.dep });
+    var tr = R().train(l.no, l.from, l.to, l.date), c = tr && tr.classes.filter(function (x) { return x.cls === l.cls; })[0];
+    if (!c) return t('trn.gone', 'This train is not in the timetable for that date.');
+    if (c.avail.state === 'DEPARTED') return t('hold.errClosed', 'Booking for train {no} has closed: it leaves at {dep} today. Remove it from your trip or choose another train.', { no: l.no, dep: l.dep });
+    if (c.avail.state === 'REGRET') return t('hold.errFull', 'Train {no} ({cls}) is now full. Remove it from your trip or choose another train.', { no: l.no, cls: l.cls });
+    return '';
+  }
+  function legLabel(l, round) { return round || l.leg === 'return' ? (l.leg === 'return' ? t('ret.retLbl', 'Return') : t('ret.outLbl', 'Outward')) : t('trip.train', 'Train'); }
+  function holdSearchPath(l, j) {
+    var out = l.leg !== 'return';
+    return 'trains?' + qs({ from: l.from, to: l.to, date: l.date, cls: l.cls, pax: (l.pax || []).length || (j && j.passengers) || 1, attach: out ? '' : 'return' });
+  }
+  /** "Trains in your trip (not paid yet) · ₹X · Pay everything at checkout" */
+  function holdBannerHTML(j, o) {
+    var h = holdOf(j); if (!h) return '';
+    o = o || {};
+    var round = h.legs.length > 1, amt = h.legs.reduce(function (s, l) { return s + legAmount(l, h.method); }, 0);
+    var bad = h.legs.map(legProblem).filter(Boolean);
+    return '<div class="hold-banner' + (bad.length ? ' is-bad' : '') + '" data-hold-banner role="status">' + OT.icon('train', 20) +
+      '<div class="hb-main"><strong>' + OT.esc(t('hold.banner', 'Trains in your trip (not paid yet) · {amt} · Pay everything at checkout', { amt: OT.inr(amt) })) + '</strong>' +
+      h.legs.map(function (l) { return '<span class="small">' + OT.esc(legLabel(l, round)) + ': <bdi class="keep">' + l.no + '</bdi> ' + OT.esc(l.name) + ' · <bdi class="keep">' + l.from + ' ' + l.dep + '</bdi> → <bdi class="keep">' + l.to + ' ' + l.arr + '</bdi> · <bdi class="keep">' + OT.esc(OT.fmtDate(l.date)) + '</bdi> · <bdi class="keep">' + l.cls + '</bdi> × ' + (l.pax || []).length + '</span>'; }).join('') +
+      (bad.length ? '<span class="small text-warn">' + OT.icon('alert', 12) + ' ' + OT.esc(bad[0]) + '</span>' : '') + '</div>' +
+      (o.cta === false ? '' : '<a class="btn btn-accent btn-sm" href="#/checkout" data-hold-pay>' + OT.icon('wallet', 15) + OT.esc(t('hold.payAll', 'Review & pay for everything')) + '</a>') + '</div>';
+  }
+
+  function holdForLater(q) {
+    if (busy || !root) return Promise.resolve(false);
+    var el = root, tr = R().train(q.no, q.from, q.to, q.date);
+    var c = tr && tr.classes.filter(function (x) { return x.cls === q.cls; })[0];
+    if (!c) return Promise.resolve(false);
+    var rtr = q.rno ? R().train(q.rno, q.to, q.from, q.ret) : null, rc = rtr && rtr.classes.filter(function (x) { return x.cls === q.rcls; })[0];
+    if (q.rno && !rc) return Promise.resolve(false);
+    if (!paxValid(el)) return Promise.resolve(false);
+    var attach = q.attach === 'return' && !rtr, pax = bookState.pax;
+    var legs = [legOf(tr, c, attach ? 'return' : 'outward', pax)];
+    if (rtr) legs.push(legOf(rtr, rc, 'return', pax));
+    var bad = legs.map(legProblem).filter(Boolean);
+    if (bad.length) { var err = el.querySelector('#px-err'); err.textContent = bad[0]; err.classList.remove('hidden'); return Promise.resolve(false); }
+    var now = new Date().toISOString(), j, to;
+    if (attach) {
+      j = OT.store.get('journey');
+      if (!j || !j.train) { OT.toast(t('ret.noJourney', 'No journey to attach the return to. Book the outward train first.'), 'error'); return Promise.resolve(false); }
+      var keepLegs = holdOf(j) ? j.hold.legs.filter(function (l) { return l.leg !== 'return'; }) : [];
+      j.hold = { legs: keepLegs.concat(legs), method: method, createdAt: (j.hold && j.hold.createdAt) || now };
+      j.returnTrain = heldTrain(legs[0], method);
+      to = j.scenario;
+    } else {
+      var out = legs[0], n = pax.length;
+      var pp = q.pkg && OT.state.pendingPackage, nights = pp ? pp.nights : 2;
+      if (pp && pp.ret) nights = Math.max(1, Math.round((R().parseYmd(pp.ret) - R().parseYmd(out.arrDate)) / 86400000));
+      if (rtr) nights = Math.max(1, Math.round((R().parseYmd(rtr.date) - R().parseYmd(out.arrDate)) / 86400000));
+      var tk = { pnr: null, ref: null, no: out.no, name: out.name, from: out.from, to: out.to, fromName: heldTrain(out, method).fromName, toName: heldTrain(out, method).toName, date: out.date, dep: out.dep, arr: out.arr, arrDate: out.arrDate,
+        cls: out.cls, status: 'HELD', chance: out.chance, passengers: out.pax.map(function () { return {}; }), total: legAmount(out, method) };
+      var prev = OT.store.get('journey');
+      j = D().journeyFromTicket(tk, { nights: nights });
+      j.pnr = null; j.ticketRef = null; j.bookedViaOneTrip = false; j.passengers = n;
+      // replace, never duplicate: the same trip (an earlier unpaid train, or a standalone stay in that city) keeps its services
+      if (prev && prev.scenario === out.to && ((!prev.train && prev.kind === 'trip') || (holdOf(prev) && !prev.pnr))) {
+        j.items = (prev.items || []).slice(); j.budget = prev.budget || j.budget; j.budgetMin = prev.budgetMin; j.id = prev.id; j.prefs = prev.prefs || j.prefs;
+        if (prev.end && !prev.train) j.nights = Math.max(1, Math.round((R().parseYmd(prev.end) - R().parseYmd(out.arrDate)) / 86400000)) || j.nights;
+        if (prev.meterRides) j.meterRides = prev.meterRides.slice();
+      }
+      j.train = heldTrain(out, method);
+      j.hold = { legs: legs, method: method, createdAt: now };
+      if (rtr) { j.returnTrain = heldTrain(legs[1], method); j.roundTrip = true; }
+      to = out.to;
+      var pk = OT.state.pendingPackage;
+      if (pk && pk.to === to) OT.state.applyPackage = pk;
+      OT.state.pendingPackage = null;
+      OT.state.lastRun = null;
+    }
+    OT.store.set('journey', j);
+    OT.state.lastCheckout = null; bookState = null; busy = false;
+    OT.emit('train:held', j.hold);
+    OT.toast(legs.length > 1 ? t('hold.toast2', 'Both trains are in your trip, not paid yet. Add services, then pay once at checkout.') : t('hold.toast', 'Train added to your trip, not paid yet. Add services, then pay once at checkout.'), 'success');
+    OT.go(attach ? 'journey' : 'results?to=' + to);
+    return Promise.resolve(j);
+  }
+
+  /** Checkout: book every held leg with the checkout's payment (one transaction). Returns { tickets, bookings, refs }. */
+  function issueHeld(m, methodLabel, txn) {
+    var j = OT.store.get('journey'), h = holdOf(j);
+    if (!h) return { tickets: [], bookings: [], refs: [] };
+    var round = h.legs.length > 1 || h.legs.some(function (l) { return l.leg === 'return'; }) || !!(OT.agents.liveReturn(j) && !j.returnTrain.held);
+    var out = { tickets: [], bookings: [], refs: [] };
+    h.legs.forEach(function (l) {
+      var tk = R().book({ no: l.no, from: l.from, to: l.to, date: l.date, cls: l.cls, passengers: l.pax, method: m === 'card' ? 'card' : 'upi' });
+      tk.ref = 'OT-TRN-' + code5(); tk.txn = txn;
+      if (l.leg === 'return') {
+        tk.leg = 'return';
+        j.returnTrain = returnFromTicket(tk, tk.ref);
+      } else {
+        var cnf = (tk.passengers || []).filter(function (p) { return p.coach; })[0];
+        j.train = { no: tk.no, name: tk.name, from: tk.from, fromName: tk.fromName, to: tk.to, toName: tk.toName, date: tk.date, dep: tk.dep, arr: tk.arr, arrDate: tk.arrDate,
+          cls: tk.cls, coach: cnf ? cnf.coach : '—', seats: (tk.passengers || []).map(function (p) { return p.berth ? String(p.berth) : p.status; }), status: tk.status, fare: tk.total, chance: tk.chance };
+        j.pnr = tk.pnr; j.ticketRef = tk.ref; j.bookedViaOneTrip = true;
+      }
+      out.tickets.push(tk);
+      out.bookings.push(trainBooking(tk, tk.ref, j, (l.pax || []).length || 1, l.leg === 'return' ? { leg: 'return', title: t('ret.bkTitle', 'Return: {no} {name}', { no: tk.no, name: tk.name }) } : round ? { leg: 'outward' } : null, methodLabel));
+      out.refs.push({ icon: 'train', label: (round ? legLabel(l, true) + ' · ' : '') + tk.no + ' ' + tk.name + ' · ' + tk.status, ref: 'PNR ' + tk.pnr });
+    });
+    delete j.hold;
+    OT.store.set('journey', j);
+    out.tickets.forEach(function (tk) { OT.emit('train:booked', tk); });
+    return out;
+  }
+  /** Remove an unpaid leg (the outward takes the held return with it). Asks first. */
+  function removeHeld(leg) {
+    var j = OT.store.get('journey'), h = holdOf(j);
+    if (!h) return Promise.resolve(false);
+    var drop = h.legs.filter(function (l) { return leg === 'return' ? l.leg === 'return' : true; });
+    if (!drop.length) return Promise.resolve(false);
+    var round = h.legs.length > 1;
+    return OT.confirmAction({
+      title: drop.length > 1 ? t('hold.rmTitle2', 'Remove both unpaid trains from your trip?') : t('hold.rmTitle', 'Remove the unpaid train from your trip?'),
+      lines: drop.map(function (l) { return OT.esc(legLabel(l, round)) + ': ' + keep(l.no) + ' ' + OT.esc(l.name) + ' · ' + keep(l.from) + ' → ' + keep(l.to) + ' · ' + keep(OT.fmtDate(l.date)) + ' · ' + keep(OT.inr(legAmount(l, h.method))); })
+        .concat([OT.esc(t('hold.rmNote', 'Nothing was paid or booked for it, so there is nothing to refund. Your hotel, transport, food and sights stay in the trip.'))]),
+      confirmLabel: t('hold.rmOk', 'Remove train'), cancelLabel: t('hold.rmKeep', 'Keep it'), danger: true
+    }).then(function (ok) {
+      if (!ok) return false;
+      var jj = OT.store.get('journey'); if (!holdOf(jj)) return false;
+      if (leg === 'return') {
+        jj.hold.legs = jj.hold.legs.filter(function (l) { return l.leg !== 'return'; });
+        if (jj.returnTrain && jj.returnTrain.held) jj.returnTrain = null;
+        jj.roundTrip = false;
+        if (!jj.hold.legs.length) delete jj.hold;
+        OT.store.set('journey', jj);
+      } else {
+        var live = (jj.items || []).some(function (i) { return i.status !== 'cancelled'; }) || (jj.meterRides || []).length;
+        if (!live) { OT.store.set('journey', undefined); }
+        else {
+          var arr = jj.train.arrDate || jj.train.date;
+          var stay = (jj.items || []).filter(function (i) { return i.type === 'hotel' && i.status !== 'cancelled' && i.endWhen; })[0];
+          jj.kind = 'trip'; jj.city = jj.scenario; jj.start = arr; jj.end = stay ? String(stay.endWhen).slice(0, 10) : D().addDays(arr, jj.nights || 1);
+          jj.train = null; jj.pnr = null; jj.returnTrain = null; jj.returnOption = null; jj.roundTrip = false; delete jj.hold;
+          OT.store.set('journey', jj);
+        }
+      }
+      OT.state.lastRun = null;
+      OT.toast(t('hold.removed', 'Unpaid train removed from your trip.'), 'info');
+      return true;
+    });
   }
 
   /* ---------------- ticket ---------------- */
@@ -547,8 +726,11 @@
     section: 'trains',
     render: render,
     onLeave: function () { root = null; busy = false; },
-    pay: pay
+    pay: pay,
+    hold: holdForLater
   });
+  OT.trainHold = { get: holdOf, legAmount: legAmount, conv: convFor, problem: legProblem, label: legLabel, banner: holdBannerHTML, issue: issueHeld, remove: removeHeld, searchPath: holdSearchPath,
+    amount: function (j, m) { var h = holdOf(j); return h ? h.legs.reduce(function (s, l) { return s + legAmount(l, m || h.method); }, 0) : 0; } };
   OT.trains = { picker: picker, bindPicker: bindPicker, codeOf: codeOf, setCode: setCode, heardChips: heardChips, path: function (o) { return 'trains?' + qs(o); }, tomorrow: tomorrow,
     tripToggle: tripToggle, datePair: datePair, bindTrip: bindTrip, setRound: setRound, isRound: isRound, tripError: tripError, tripVals: tripVals };
 })();

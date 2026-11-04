@@ -18,6 +18,8 @@
   var MAX_ROWS = 12;
 
   /* ---------------- model ---------------- */
+  /** v1.2.2: a train kept in the trip unpaid reads "Not paid yet" (no PNR) instead of a raw status code. */
+  function stLabel(s) { return s === 'HELD' ? t('hold.badge', 'Not paid yet') : s; }
   function contactFor(name) { var h = hash(name || 'x'); return '+91 9' + (h % 9) + 'XXX XX' + (100 + h % 900) + ' (sample)'; }
   function model(j) {
     j = j || OT.store.get('journey');
@@ -35,8 +37,8 @@
       return {
         date: e.when ? OT.fmtDate(e.when) : '', time: tm(e.when), title: e.title,
         sub: x ? (x.type === 'hotel' ? x.area : x.meet || x.area || x.provider || '') : (e.sub || ''),
-        ref: i && i.bookingRef ? i.bookingRef : (isTrain && (e.kind === 'dep' || e.kind === 'arr') && j.pnr ? 'PNR ' + j.pnr : e.kind === 'rdep' && j.returnTrain ? 'PNR ' + j.returnTrain.pnr : ''),
-        contact: x && !x.mode ? contactFor(x.provider) : '', status: i ? (i.status === 'confirmed' ? t('status.confirmed', 'Confirmed') : t('status.selected', 'Planned')) : (isTrain ? ((e.kind === 'rdep' || e.kind === 'rarr') && rt ? rt.status || 'CNF' : (tr && tr.status) || 'CNF') : ''),
+        ref: i && i.bookingRef ? i.bookingRef : (isTrain && (e.kind === 'dep' || e.kind === 'arr') && j.pnr ? 'PNR ' + j.pnr : e.kind === 'rdep' && j.returnTrain && j.returnTrain.pnr ? 'PNR ' + j.returnTrain.pnr : ''),
+        contact: x && !x.mode ? contactFor(x.provider) : '', status: i ? (i.status === 'confirmed' ? t('status.confirmed', 'Confirmed') : t('status.selected', 'Planned')) : (isTrain ? stLabel((e.kind === 'rdep' || e.kind === 'rarr') && rt ? rt.status || 'CNF' : (tr && tr.status) || 'CNF') : ''),
         icon: isTrain ? 'train' : e.icon || 'info', train: isTrain
       };
     });
@@ -50,8 +52,8 @@
     var meters = OT.meter ? OT.meter.list(j) : [];
     return {
       id: j.id, name: u.name || t('it.traveller', 'Traveller'), phone: u.phone || '', email: u.email || '', title: title, dates: dates, city: city,
-      pax: j.passengers || 1, train: tr && tr.status !== 'PLANNED' ? { no: tr.no, name: tr.name, from: tr.from, to: tr.to, dep: tr.dep, arr: tr.arr, date: tr.date, cls: tr.cls, coach: tr.coach, seats: (tr.seats || []).join(', '), status: tr.status, pnr: j.pnr } : null,
-      ret: rt ? { no: rt.no, name: rt.name, from: rt.from, to: rt.to, dep: rt.dep, arr: rt.arr, date: rt.date, cls: rt.cls, status: rt.status || 'CNF', pnr: rt.pnr } : null,
+      pax: j.passengers || 1, train: tr && tr.status !== 'PLANNED' ? { no: tr.no, name: tr.name, from: tr.from, to: tr.to, dep: tr.dep, arr: tr.arr, date: tr.date, cls: tr.cls, coach: tr.coach, seats: (tr.seats || []).join(', '), status: stLabel(tr.status), pnr: j.pnr } : null,
+      ret: rt ? { no: rt.no, name: rt.name, from: rt.from, to: rt.to, dep: rt.dep, arr: rt.arr, date: rt.date, cls: rt.cls, status: stLabel(rt.status || 'CNF'), pnr: rt.pnr } : null,
       meterTotal: meters.reduce(function (s, r) { return s + (r.approx || 0); }, 0), meterN: meters.length,
       rows: rows, more: Math.max(0, rows.length - MAX_ROWS), total: total, refs: refs, generatedAt: new Date(),
       code: 'ONETRIP|' + j.id + '|' + refs.join(',')
@@ -95,7 +97,7 @@
       (m.train ? '<section class="it-train"><span class="it-k">' + OT.icon('train', 13) + ' PNR</span><strong class="it-pnr">' + keep(m.train.pnr || '—') + '</strong>' +
         '<span>' + keep(m.train.no) + ' ' + OT.esc(m.train.name) + '</span><span>' + keep(m.train.from) + ' ' + keep(m.train.dep) + ' → ' + keep(m.train.to) + ' ' + keep(m.train.arr) + '</span>' +
         '<span>' + keep(m.train.cls) + (m.train.seats ? ' · ' + keep(m.train.coach) + ' / ' + keep(m.train.seats) : '') + ' · ' + keep(m.train.status) + '</span></section>' : '') +
-      (m.ret ? '<section class="it-train it-ret" data-it-return><span class="it-k">' + OT.icon('refresh', 13) + ' ' + OT.esc(t('ret.retLbl', 'Return')) + ' PNR</span><strong class="it-pnr">' + keep(m.ret.pnr) + '</strong>' +
+      (m.ret ? '<section class="it-train it-ret" data-it-return><span class="it-k">' + OT.icon('refresh', 13) + ' ' + OT.esc(t('ret.retLbl', 'Return')) + ' PNR</span><strong class="it-pnr">' + keep(m.ret.pnr || '—') + '</strong>' +
         '<span>' + keep(m.ret.no) + ' ' + OT.esc(m.ret.name) + '</span><span>' + keep(m.ret.from) + ' ' + keep(m.ret.dep) + ' → ' + keep(m.ret.to) + ' ' + keep(m.ret.arr) + '</span>' +
         '<span>' + keep(OT.fmtDate(m.ret.date)) + ' · ' + keep(m.ret.cls) + ' · ' + keep(m.ret.status) + '</span></section>' : '') +
       '<ol class="it-tl">' + rows.map(function (r) {
@@ -182,7 +184,7 @@
     }
     if (m.ret) {
       ctx.fillStyle = '#FFF3E6'; ctx.fillRect(70, y, W - 140, 100);
-      ctx.fillStyle = '#B85A07'; ctx.font = '700 30px ' + FONT; ctx.fillText(t('ret.retLbl', 'Return') + ' · PNR ' + m.ret.pnr, 96, y + 42);
+      ctx.fillStyle = '#B85A07'; ctx.font = '700 30px ' + FONT; ctx.fillText(t('ret.retLbl', 'Return') + ' · PNR ' + (m.ret.pnr || '—'), 96, y + 42);
       ctx.font = '600 24px ' + FONT; ctx.fillStyle = '#1E2A3B'; ctx.fillText(m.ret.no + ' ' + m.ret.name + ' · ' + m.ret.cls + ' · ' + m.ret.status, 96, y + 80);
       ctx.textAlign = 'right'; ctx.fillText(OT.fmtDate(m.ret.date) + '  ' + m.ret.from + ' ' + m.ret.dep + '  →  ' + m.ret.to + ' ' + m.ret.arr, W - 96, y + 42); ctx.textAlign = 'left';
       y += 130;
@@ -239,7 +241,7 @@
     m = m || model(); if (!m) return '';
     var out = ['IRCTC OneTrip itinerary (simulated)', m.name + ' · ' + m.title + (m.dates ? ' · ' + m.dates : '')];
     if (m.train) out.push('PNR ' + (m.train.pnr || '—') + ' · ' + m.train.no + ' ' + m.train.name + ' ' + m.train.dep + '→' + m.train.arr);
-    if (m.ret) out.push('Return PNR ' + m.ret.pnr + ' · ' + m.ret.no + ' ' + m.ret.name + ' · ' + OT.fmtDate(m.ret.date) + ' ' + m.ret.dep + '→' + m.ret.arr);
+    if (m.ret) out.push('Return PNR ' + (m.ret.pnr || '—') + ' · ' + m.ret.no + ' ' + m.ret.name + ' · ' + OT.fmtDate(m.ret.date) + ' ' + m.ret.dep + '→' + m.ret.arr);
     m.rows.slice(0, 8).forEach(function (r) { out.push('• ' + [r.date, r.time].filter(Boolean).join(' ') + ' ' + r.title + (r.ref ? ' (' + r.ref + ')' : '')); });
     if (m.rows.length > 8) out.push('+' + (m.rows.length - 8) + ' more');
     out.push('Total paid: ' + OT.inr(m.total));
