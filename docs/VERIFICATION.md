@@ -1,3 +1,86 @@
+# IRCTC OneTrip: v1.2.2 independent verification
+
+Independent verification of the owner's v1.2.2 request ("give an option below the pay option: add other services, or just pay for the trains … pay at the last"), written on 4 Nov 2026 by a separate agent that did not build v1.2.2. Every claim in the builder notes below was re-checked with the verifier's own Playwright scripts (real clicks, 1440×900 and 375×812, file:// and http), not with the builder's tests. The builder notes and all earlier reports follow unchanged.
+
+**Result (v1.2.2):** after the 6 fixes in section v1.2.2-V3, `python3 tests/e2e.py --base file` passes **2204 checks with 0 failures** and `--base http` passes **2573 checks with 0 failures** (code at commit `42c5c9b`; both at 1440×900 and 375×812, 0 console errors, 0 page errors; http includes the full 11-language route sweep). The verifier's new group `verify v1.2.2` (`--only verify122`, 35 checks per base) runs in both; each of its fix checks reproduces a defect the verifier first observed by hand on the builder's code (`4ef2982`).
+
+## v1.2.2-V1. Traceability: owner request → evidence
+
+| The owner asked for | Verdict | Evidence (verifier's own probes + tests) |
+|---|---|---|
+| An option **below the Pay button** once one train (one way) or both trains (round trip) are chosen | **Pass** | `#/trains/book` one way (12011 CC) and round trip (12011 + 12012): "OR" divider and **"Add hotel, transport, food & sightseeing — pay once at the end"** sit directly under Pay (button top about 45 px below Pay, divider in between), same width and left edge, label and hint fully readable (no clipping) at 1440 and 375, file and http; also on "Add return train" ("Add to my trip and pay later at checkout, with everything else"), "Add a train to this trip" and the assistant/voice path. Empty name / age 0 give the identical error for both buttons and store nothing. At 1440×900 the option starts at the fold: scroll a little (limitation 5). |
+| **"Just pay for the trains"** stays as it was | **Pass** | Pay now: PNR at once, ticket page, one or two train bookings (round trip: two PNRs, one payment), WhatsApp, "Add return train", autos never booked, the 25-step tour; v1.2.1 groups still green in both full runs. |
+| **"Add other services"** → add services → **pay at the last** | **Pass** (after fixes #1–#4) | NDLS→CDG 12011 CC × 2: held amount = Pay-now amount (UPI ₹1,850 = 915 × 2 + 20; card ₹1,865 = 915 × 2 + 35) and the planning banner shows it. Hotel H-CDG-01 + full-day cab C-CDG-04 + "I'll take an auto" added. Before paying: no PNR digits on My Journey, Bookings, checkout or the itinerary (fix #1 removed a sample return PNR); Bookings shows only the "not paid yet" note; partner P-101 0, admin live GTV 0 and 0 train tickets. Reload keeps everything. Checkout: train line + hotel + cab, lines sum to the grand total exactly, auto only as "paid on the meter" note; switching UPI ↔ card ↔ wallet changes the train line by the fee and the total (fix #4 keeps My Journey and the banner in step). Confirm dialog lists the train with passengers, every service and the total. One payment → one transaction, pop-up with **PNR + hotel and cab refs**, amount = sum of bookings. Afterwards: Bookings lists the PNR (cancellable, refund = railway rule), partner P-101 counts the hotel, admin counts 1 train (train value kept apart from add-on GTV, as since v1.1), one-page itinerary has the PNR (A4 = 1 page, PNG drawn), WhatsApp opens `wa.me/917589802655?text=…` with the PNR, "Add return train" works. |
+| Round trip: both trains, then services, one payment | **Pass** (after fix #2) | 12011 + 12012 → hotel → **Change outward train** to 22068 or 12005: same journey id, hotel kept once, outward replaced, the unpaid return kept (before fix #2 it was silently lost). Round-trip re-search replaces both legs (no duplicate). Checkout outward + return + hotel = total (₹1,850 + ₹1,850 + ₹5,300 = ₹9,000); one payment → **two PNRs** in the pop-up; Bookings Outward / Return; return cancelled alone (refund ₹1,470 shown, "Add return train" back), then the outward. |
+
+## v1.2.2-V2. Verifier results per item
+
+| # | Item | Result | Notes |
+|---|---|---|---|
+| 1 | Book page option (one way, round trip; 1440 and 375; file and http); validation identical | PASS | Geometry and clipping measured; screenshots reviewed. |
+| 2 | One way + hotel + cab + auto, pay once; everything before/after payment | PASS after fixes #1, #4 | Totals exact for UPI and card; auto never charged or booked; A4 1 page, PNG, WhatsApp, Add return train, cancel/refund. |
+| 3 | Round trip, change outward, two PNRs, independent cancellation | PASS after fix #2 | |
+| 4 | Remove unpaid train (Keep it / Remove), stay kept, "Add a train to this trip" both options | PASS after fix #3 | Before fix #3 (introduced by the verifier's own fix #1 and caught here) the page did not re-render; final code re-renders as "Stay in Chandigarh" with "Add a train to this trip"; hold and pay-now from there both return to the same journey. |
+| 5 | Departed train at checkout (stored date = yesterday) | PASS | "Train 12011 left on … at 07:40, so it can no longer be booked. Remove it from your trip or choose another train."; Pay disabled; a forced click opens no dialog and books nothing; the same warning on My Journey and the planning banner; no errors. |
+| 6 | Builder-flagged risk and combinations | PASS after fixes #2, #4, #5 | Unpaid outward + paid return: removing the outward now explains and keeps both (fix #5); changing the outward keeps the paid return (fix #2); checkout shows the return as paid and charges one train. Paid outward + "Add return train" → pay later with 1 of 2 passengers: checkout shows "CC × 1" with the names, booking pax 1 (limitation 3). Unpaid outward + return held later: both legs at checkout, two PNRs. Pay-now train + unpaid services: unchanged v1.2.1 checkout. Method chosen on the book page opens the checkout; changing it at checkout updates My Journey and the banner; holding again with another method is followed (fix #4). |
+| 7 | Assistant / voice in Hindi, signed in as Sunita | PASS | Login page → "Sign in as Sunita", header language → हिन्दी; typed in the assistant "दिल्ली से चंडीगढ़ ट्रेन बुक करो" → "ट्रेनें खोजें" → book page; sample voice phrase via the home mic sample → book page. Option, banner, My Journey, checkout, Bookings note, itinerary, remove dialog, confirm dialog and pop-up checked for every English default of the 44 `hold.*` strings: none leaked; all `hold.*` keys have Hindi. |
+| 8 | Pay-now path unchanged | PASS | One way and round trip by hand; v1.1/v1.2/v1.2.1 groups green in both full runs. |
+| 9 | Start demo, only Next | PASS after fix #6 | 25/25 steps on desktop and phone, file and http, 0 errors. On the phone, step 8 used to hide the pay-once option under the tour card; now it sits above it. |
+| 10 | Regression: routes × 11 languages, overflow, v1.2.1 saved data | PASS | Full runs below. State generated by running `74d432c` in a temporary worktree (paid train + unpaid hotel/cab + meter auto; and fully paid with a return) loads in v1.2.2 on both bases and widths: 11 routes, no bad text, no overflow, no errors, no `hold`; the unpaid services of the old state pay normally. |
+| 11 | Screens by eye | PASS after fixes #6 and the phone ghost-card fix | See V5. |
+
+## v1.2.2-V3. Bugs found and fixed
+
+| # | File(s) | Fix |
+|---|---|---|
+| 1 | `js/views/trains.js`, `js/views/journey.js` | **A PNR shown before payment:** an unpaid trip kept the timetable's sample return ("Sample return: 12012 …, (PNR 48843…)") with a **Link return PNR** button that linked a "CNF" sample return to an unpaid trip. Holding a train now clears that sample; My Journey never shows it for an unpaid train. |
+| 2 | `js/views/trains.js` | **"Change outward train" lost the return:** in a round trip held for checkout (and when the return was already paid) choosing another outward from My Journey dropped the return from the trip. The return (held or paid) is now carried over when it still leaves after the new arrival, for both "pay once" and "Pay now". |
+| 3 | `js/views/journey.js` | Guard for fix #1 on a trip without a train (removing the unpaid train threw `Cannot read properties of null` and My Journey did not re-render). |
+| 4 | `js/views/checkout.js` | **Payment method out of step:** after switching UPI ↔ card at checkout, My Journey "To pay now", the unpaid note and the planning banner still used the book-page method (₹7,165 vs checkout ₹7,150), and holding again with another method was ignored by checkout. Checkout now writes the chosen method to the held trains and follows a new method from the train page. |
+| 5 | `js/views/trains.js`, `js/core/i18n.js` | **Builder-flagged risk:** removing an unpaid outward while a **paid** return existed made the return vanish from My Journey while it stayed in Bookings. Now a dialog says "Your return train is already paid" (PNR, date) and offers Bookings & refunds (cancel the return first) or Keep it; nothing disappears. Hindi added. |
+| 6 | `js/tour.js`, `css/traveller.css` | **Phone visuals:** tour step 8 hid the pay-once option under the tour card (the page could not scroll further); the tour now lifts the target above the card on phones, with scroll room during the tour. The "No return train yet" card on My Journey squeezed its text into a 90 px column with **Add return train** over the title (pre-existing, prominent in the new flow); it now stacks on phones. |
+| 7 | `tests/e2e.py` | New group `verify v1.2.2` (`--only verify122`, also runs with `v122`): card amount in the banner, option geometry, no PNR before payment, method switch consistency, remove → stay re-render, change outward keeps the held return (round trip) and a paid return, paid-return removal dialog, checkout with a paid return, trains vs GTV, phone ghost-card overlap; plus a phone check on tour step 8. |
+
+## v1.2.2-V4. Full runs (after the last code change, commit `42c5c9b`)
+
+| Run | Passed | Failed |
+|---|---|---|
+| `python3 tests/e2e.py --base file` | 2204 | 0 |
+| `python3 tests/e2e.py --base http` | 2573 | 0 |
+| of which `verify v1.2.2` | 35 (16 desktop + 19 mobile) per base | 0 |
+
+Builder reference on `3cbad19`: file 2168 / 0, http 2537 / 0.
+
+## v1.2.2-V5. Screens reviewed by eye
+
+Book page with the option (one way 1440 and 375, round trip 1440 scrolled), planning banner (375), My Journey unpaid (1440 full page, 375 full page), checkout with trains + hotel (1440 round trip, 375 Hindi), confirm dialog (375 round trip), payment pop-up with two PNRs (375) and in Hindi (375), Bookings "not paid yet" note (375), departed-train checkout, tour step 8 (375). Toasts from the previous click sometimes cover part of a screenshot in fast automated runs; they time out in normal use.
+
+## v1.2.2-V6. Remaining limitations (most severe first)
+
+1. **Medium: only Hindi has the new wording.** In bn, mr, ta, te, kn, ml, gu, pa and or only the button label is translated; the banner, My Journey note, checkout lines, dialogs and the Bookings note show in English. Demo the pay-once story in English or Hindi.
+2. **Medium (builder): the unpaid train is not a seat hold.** Availability, RAC/WL and the chance are decided at checkout; a departed or closed train is blocked with a clear message.
+3. **Low: a return added later with "pay later" keeps its own passengers** (they can differ from the outward's); checkout and the confirm dialog list each train's names and count, so it is visible before paying.
+4. **Low: an unpaid outward cannot be removed alone while its return is already paid** — by design after fix #5: cancel the return in Bookings & refunds first, or change the outward.
+5. **Low: at 1440×900 the pay-once option starts at the bottom edge of the first screen** (Pay is fully visible, the option's top is); scroll a little. On 375 it is directly under Pay.
+6. **Low: "Change outward train" opens an empty passenger form**; names are typed again. In checkout, "Remove from trip" on the outward of a round trip removes both unpaid trains (the dialog says so).
+7. **Low: Bookings note reads "1 train(s) in your trip, not paid yet"** (no plural handling); the tour's presenter notes are English only (as before).
+8. Earlier limitations (v1.2.1-V6) still apply: return-phrase parser is keyword-based, 320 px My Journey is slightly wider than the screen, WhatsApp is a wa.me hand-off to 75898 02655.
+
+## Jury demo checklist (v1.2.2)
+
+1. Use **Chrome or Edge** on a laptop (window ≥ 1280 px). Open `index.html` by double-click, or run `start-server.bat` / `.sh`.
+2. Before the jury arrives: **Settings → Reset demo data**. **AI mode "Simulated only"** unless Wi-Fi and the Gemini key were tested that morning. Language **English or Hindi**.
+3. **WhatsApp signed in on 75898 02655**; allow pop-ups and the microphone.
+4. Scripted run: **Start demo** and only *Next* (25 steps). **Step 8** points at the new option under Pay; the tour itself pays now.
+5. **New: pay once.** Trains → New Delhi → Chandigarh, 12011 CC, 2 passengers → fill names → *scroll a little* → **Add hotel, transport, food & sightseeing — pay once at the end**. Show the banner "Trains in your trip (not paid yet)", add the hotel, a cab and "I'll take an auto". Open **Bookings & refunds**: only the "not paid yet" note, no PNR. **My Journey**: "Not paid yet — pay at checkout". **Review & pay for everything** → train + hotel + cab = one total (auto on the meter, not charged) → confirm dialog → **one** payment → pop-up with the **PNR and the service refs** → WhatsApp.
+6. Round trip variant: **Round trip** 12011 + 12012 → pay-once option → hotel → checkout shows outward + return + hotel → one payment → **two PNRs**. In Bookings cancel only the return; "Add return train" comes back.
+7. If asked "what if the train leaves before I pay?": checkout blocks a departed train with a clear message.
+8. Autos: Transport → Chandigarh: auto/e-rickshaw cards have no Book button ("≈ ₹30 on meter"); cab replaces auto for the same leg.
+9. Standalone story: Hotels → Jaipur → Book now → pay → My Journey "Stay in Jaipur" → **Add a train to this trip** (both Pay and the pay-once option are offered).
+10. Close other tabs, zoom 100%, notifications off. Everything is **simulated**; say so if asked.
+
+---
+
 # IRCTC OneTrip: v1.2.2 builder notes (to be verified)
 
 Builder notes for the owner's v1.2.2 request, written by the builder on 4 Nov 2026. **Not yet independently verified.** The v1.2.1 verification report and everything before it follow unchanged.
