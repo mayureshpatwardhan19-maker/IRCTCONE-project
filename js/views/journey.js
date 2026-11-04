@@ -152,7 +152,7 @@
       '<div class="tl-main"><strong>' + OT.esc(t('trip.noTrain', 'No train in this trip yet')) + '</strong><span class="small muted">' + OT.esc(t('trip.noTrainSub', 'Coming by train? Add it and everything here is re-timed around the arrival.')) + '</span></div>' +
       '<div class="tl-actions"><a class="btn btn-ghost btn-sm" href="#/' + addTrainPath(j) + '">' + OT.icon('plus', 14) + OT.esc(t('trip.addTrain', 'Add a train to this trip')) + '</a></div></div></li>';
     var canRet = j.train && j.train.status !== 'PLANNED' && j.train.status !== 'CANCELLED' && !OT.agents.liveReturn(j);
-    var sample = !j.bookedViaOneTrip && j.returnOption;
+    var sample = !j.bookedViaOneTrip && !(j.train && j.train.held) && j.returnOption;
     var ghost = !canRet ? '' :
       '<li class="tl-row tl-ghost tl-addreturn" data-tour="add-return"><div class="tl-rail"><span class="tl-node">' + OT.icon('plus', 14) + '</span></div><div class="tl-card">' +
       '<div class="tl-main"><strong>' + OT.esc(t('ret.none', 'No return train yet')) + '</strong><span class="small muted">' +

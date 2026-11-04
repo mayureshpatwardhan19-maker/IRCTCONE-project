@@ -213,7 +213,8 @@
       return;
     }
     var rows = lines(j), held = trainRows(j).length;
-    if (held && heldFor !== j.id) { heldFor = j.id; if (j.hold.method && METHODS[j.hold.method]) method = j.hold.method; return render(el); }
+    // the checkout opens on the method chosen for the held train(s) (re-chosen on the train page = followed again)
+    if (held && heldFor !== j.id + '|' + j.hold.method) { heldFor = j.id + '|' + j.hold.method; if (j.hold.method && METHODS[j.hold.method]) method = j.hold.method; return render(el); }
     var lc = OT.state.lastCheckout;
     if (!rows.length && !held && lc && lc.bookings.length && lc.bookings[0].journeyId === j.id) {
       el.innerHTML = confirmationHTML(lc);
@@ -229,7 +230,19 @@
       return;
     }
     el.innerHTML = summaryHTML(j, rows);
-    OT.$$('input[name="pm"]', el).forEach(function (r) { r.addEventListener('change', function () { method = r.value; render(el); }); });
+    OT.$$('input[name="pm"]', el).forEach(function (r) {
+      r.addEventListener('change', function () {
+        method = r.value;
+        // v1.2.2 verify: held trains follow the method chosen here, so My Journey, the banner and this page show the same amounts
+        if (held) OT.store.update('journey', function (jj) {
+          if (!OT.trainHold.get(jj)) return jj;
+          jj.hold.method = method; heldFor = jj.id + '|' + method;
+          jj.hold.legs.forEach(function (l) { var tr = l.leg === 'return' ? jj.returnTrain : jj.train; if (tr && tr.held) tr.fare = OT.trainHold.legAmount(l, method); });
+          return jj;
+        });
+        render(el);
+      });
+    });
     OT.$$('[data-accept]', el).forEach(function (c) {
       c.addEventListener('change', function () {
         var id = c.getAttribute('data-accept');

@@ -458,6 +458,7 @@
           j.items = (prev.items || []).slice(); j.budget = prev.budget || j.budget; j.budgetMin = prev.budgetMin; j.id = prev.id;
           if (prev.end) j.nights = Math.max(1, Math.round((R().parseYmd(prev.end) - R().parseYmd(tk.arrDate)) / 86400000)) || j.nights;
           if (prev.meterRides) j.meterRides = prev.meterRides.slice();
+          if (!rtk) carryReturn(prev, j, tk.arrDate, method);
         }
         if (rtk) { j.returnTrain = returnFromTicket(rtk, rtk.ref); j.roundTrip = true; }
         OT.store.set('journey', j);
@@ -546,6 +547,19 @@
       (o.cta === false ? '' : '<a class="btn btn-accent btn-sm" href="#/checkout" data-hold-pay>' + OT.icon('wallet', 15) + OT.esc(t('hold.payAll', 'Review & pay for everything')) + '</a>') + '</div>';
   }
 
+  /** v1.2.2 verify: "Change outward train" keeps the trip's return (held or paid) when the new outward arrives before it leaves. */
+  function carryReturn(prev, j, arrDate, m) {
+    var r = OT.agents.liveReturn(prev); if (!r || !(r.date >= arrDate)) return;
+    var rl = holdOf(prev) ? prev.hold.legs.filter(function (l) { return l.leg === 'return'; })[0] : null;
+    if (r.held && !rl) return;
+    j.returnTrain = r; j.roundTrip = true;
+    j.nights = Math.max(1, Math.round((R().parseYmd(r.date) - R().parseYmd(arrDate)) / 86400000));
+    if (rl) {
+      if (holdOf(j)) j.hold.legs = j.hold.legs.filter(function (l) { return l.leg !== 'return'; }).concat([rl]);
+      else j.hold = { legs: [rl], method: m, createdAt: prev.hold.createdAt };
+      j.returnTrain = heldTrain(rl, j.hold.method);
+    }
+  }
   function holdForLater(q) {
     if (busy || !root) return Promise.resolve(false);
     var el = root, tr = R().train(q.no, q.from, q.to, q.date);
@@ -576,7 +590,8 @@
         cls: out.cls, status: 'HELD', chance: out.chance, passengers: out.pax.map(function () { return {}; }), total: legAmount(out, method) };
       var prev = OT.store.get('journey');
       j = D().journeyFromTicket(tk, { nights: nights });
-      j.pnr = null; j.ticketRef = null; j.bookedViaOneTrip = false; j.passengers = n;
+      // no "Sample return … (PNR …)" / "Link return PNR" for an unpaid OneTrip train (that sample is for IRCTC-linked trips)
+      j.pnr = null; j.ticketRef = null; j.bookedViaOneTrip = false; j.passengers = n; j.returnOption = null;
       // replace, never duplicate: the same trip (an earlier unpaid train, or a standalone stay in that city) keeps its services
       if (prev && prev.scenario === out.to && ((!prev.train && prev.kind === 'trip') || (holdOf(prev) && !prev.pnr))) {
         j.items = (prev.items || []).slice(); j.budget = prev.budget || j.budget; j.budgetMin = prev.budgetMin; j.id = prev.id; j.prefs = prev.prefs || j.prefs;
@@ -585,6 +600,7 @@
       }
       j.train = heldTrain(out, method);
       j.hold = { legs: legs, method: method, createdAt: now };
+      if (!rtr && prev && j.id === prev.id) carryReturn(prev, j, out.arrDate, method);
       if (rtr) { j.returnTrain = heldTrain(legs[1], method); j.roundTrip = true; }
       to = out.to;
       var pk = OT.state.pendingPackage;
@@ -633,7 +649,16 @@
     if (!h) return Promise.resolve(false);
     var drop = h.legs.filter(function (l) { return leg === 'return' ? l.leg === 'return' : true; });
     if (!drop.length) return Promise.resolve(false);
-    var round = h.legs.length > 1;
+    var round = h.legs.length > 1, pr = OT.agents.liveReturn(j);
+    // v1.2.2 verify: a PAID return cannot stay in a trip without its outward train: say so instead of hiding it from the journey
+    if (leg !== 'return' && pr && !pr.held) {
+      return OT.confirmAction({
+        title: t('hold.rmPaidTitle', 'Your return train is already paid'),
+        lines: [OT.esc(t('ret.retLbl', 'Return')) + ': ' + keep(pr.no) + ' ' + OT.esc(pr.name) + ' · PNR ' + keep(pr.pnr) + ' · ' + keep(OT.fmtDate(pr.date)),
+          OT.esc(t('hold.rmPaidNote', 'The unpaid outward train cannot be removed on its own while the return is booked. Cancel the return in Bookings & refunds first (railway refund rules apply), or choose another outward train.'))],
+        confirmLabel: t('nav.bookings', 'Bookings & refunds'), cancelLabel: t('hold.rmKeep', 'Keep it')
+      }).then(function (ok) { if (ok) OT.go('bookings'); return false; });
+    }
     return OT.confirmAction({
       title: drop.length > 1 ? t('hold.rmTitle2', 'Remove both unpaid trains from your trip?') : t('hold.rmTitle', 'Remove the unpaid train from your trip?'),
       lines: drop.map(function (l) { return OT.esc(legLabel(l, round)) + ': ' + keep(l.no) + ' ' + OT.esc(l.name) + ' · ' + keep(l.from) + ' → ' + keep(l.to) + ' · ' + keep(OT.fmtDate(l.date)) + ' · ' + keep(OT.inr(legAmount(l, h.method))); })
