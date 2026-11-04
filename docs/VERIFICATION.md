@@ -39,7 +39,16 @@ New group `v122` (`python3 tests/e2e.py --only v122`), 1440 and 375, file and ht
 
 ## v1.2.2-4. Results (builder runs, 4 Nov 2026)
 
-RESULTS_PLACEHOLDER
+Code at commit `3cbad19` (this docs commit changes no code). Both bases at 1440×900 and 375×812.
+
+| Run | Passed | Failed |
+|---|---|---|
+| `python3 tests/e2e.py --only v122 --base file` | 249 | 0 |
+| `python3 tests/e2e.py --base file` (full) | 2168 | 0 |
+| `python3 tests/e2e.py --base http` (full, 11-language route sweep) | 2537 | 0 |
+| of which `v1.2.2` | 249 per base (77 desktop + 91 mobile + 81 tour) | 0 |
+
+v1.2.1 reference on the same suite: file 1914 / 0, http 2283 / 0. Screens reviewed by eye at 1440 and 375: book page with the option (one way and round trip), planning banner, My Journey unpaid state, checkout with trains + hotel, confirm dialog and the pop-up with two PNRs; fixed after review: the checkout Pay button label was clipped at 1440 ("Pay ₹9,000 for everything (simulated)") and now wraps.
 
 ## v1.2.2-5. Known limitations
 
