@@ -269,6 +269,10 @@
         if (ov && card && window.innerWidth < 700) {
           var top = card.getBoundingClientRect().top, rr = el.getBoundingClientRect(), need = Math.min(rr.bottom, rr.top + window.innerHeight * 0.5) - (top - 12);
           if (need > 0) ov.scrollTop += need;
+        } else if (card && window.innerWidth < 700 && !el.closest('.ps-overlay, .modal-backdrop')) {
+          // phone: the same for the page itself (e.g. the pay-once option near the bottom of the book page)
+          var ct = card.getBoundingClientRect().top, br = el.getBoundingClientRect(), more = Math.min(br.bottom, br.top + window.innerHeight * 0.5) - (ct - 12);
+          if (more > 0) window.scrollBy(0, more);
         }
       }
       setBusy(false);

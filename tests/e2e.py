@@ -1,4 +1,4 @@
-# IRCTC OneTrip end-to-end tests. Run from the repo root:  python3 tests/e2e.py [--shots DIR] [--quick] [--only verify,tour,v121,verify121,v122] [--base file|http]
+# IRCTC OneTrip end-to-end tests. Run from the repo root:  python3 tests/e2e.py [--shots DIR] [--quick] [--only verify,tour,v121,verify121,v122,verify122] [--base file|http]
 # Needs: pip install playwright && python -m playwright install chromium. Not loaded by index.html.
 """Drives the prototype like a presenter (real clicks) on file:// and on a local http.server,
 at 1440x900 and 375x812. Fails on console errors, page errors, placeholder/NaN text,
@@ -413,6 +413,9 @@ def tour(pg, tag, exit_mid=False):
         if pg.vp == 'mobile' and pg.ev('() => !!document.querySelector(".ps-overlay.show")'):
             cov = pg.ev('() => { const c = document.querySelector(".tour-card").getBoundingClientRect(), s = document.querySelector(".tour-spot").getBoundingClientRect(); return { spotTop: s.top, cardTop: c.top, spotBottom: s.bottom }; }')
             check('tour step %d (phone, payment pop-up): highlighted part is above the tour card' % (i + 1), cov['spotTop'] < cov['cardTop'] - 40, cov)
+        if pg.vp == 'mobile' and pg.ev('() => OT.tour.steps[%d].target === \'[data-tour="pay-later"]\'' % i):
+            cov = pg.ev('() => [document.querySelector(".tour-spot").getBoundingClientRect().bottom, document.querySelector(".tour-card").getBoundingClientRect().top]')
+            check('tour step %d (phone): the pay-once option is above the tour card, not hidden (verify v1.2.2)' % (i + 1), cov[0] <= cov[1] + 2, cov)
         check('tour step %d card in viewport' % (i + 1), box[0] >= 0 and box[1] >= 0 and box[2] <= box[4] + 1 and box[3] <= box[5] + 1, box)
         if SHOTS and not exit_mid:
             p.screenshot(path=str(SHOTS / ('tour-%02d-%s.png' % (i + 1, tag))))
@@ -1995,6 +1998,114 @@ def v122(browser, base, vp):
             tp.close()
 
 
+def verify122(browser, base, vp):
+    """Independent verification of v1.2.2 (pay once): regression checks for the verifier's fixes."""
+    tag = 'v122v-' + vp
+    num = lambda s: int(re.sub(r'[^0-9]', '', s or '') or 0)
+    pg = Page(browser, base, vp, init=OPEN_STUB)
+    p = pg.p
+
+    def fresh():
+        pg.go('home'); pg.ev('() => localStorage.clear()'); p.reload(); p.wait_for_function('() => window.OT && OT.router.current()')
+        pg.ev('() => { OT.state.lastRun = null; OT.state.lastCheckout = null; }')
+
+    def pick(path, train, then_ret=False, method=None):
+        pg.go(path, 400)
+        p.locator('.trn[data-train="%s"] .cls-tile:not([disabled])' % train).first.click(); p.wait_for_timeout(400)
+        if then_ret:
+            p.locator('.trn[data-train="12012"] [data-book="CC"]').first.click(); p.wait_for_timeout(400)
+        p.wait_for_selector('#pax-form')
+        if method:
+            p.locator('input[name="tpm"][value="%s"]' % method).check(force=True); p.wait_for_timeout(250)
+        fill_pax(p)
+
+    def modal(i):
+        p.wait_for_selector('.modal-backdrop.show'); p.wait_for_timeout(150)
+        txt = p.inner_text('.modal-backdrop.show .modal')
+        p.locator('.modal-backdrop.show .modal-foot .btn').nth(i).click(); p.wait_for_timeout(450)
+        return txt
+
+    def close_ps():
+        p.wait_for_selector('.ps-overlay.show', timeout=8000); p.wait_for_timeout(300); p.locator('.ps-overlay [data-ps-done]').click(); p.wait_for_timeout(250)
+
+    plus = lambda n: pg.ev('n => OT.data.travel.addDays(OT.data.rail.ymd(new Date()), n)', n)
+    fresh()
+    d, r = plus(5), plus(7)
+    ow = 'trains?from=NDLS&to=CDG&date=%s&cls=CC&pax=2' % d
+    # 1. card on the book page: the held amount = the card Pay amount; option fully readable below Pay
+    pick(ow, '12011', method='card')
+    card = num(p.inner_text('#trn-pay'))
+    g = pg.ev('() => { const a = document.querySelector("#trn-pay").getBoundingClientRect(), b = document.querySelector("#trn-hold"), s = b.querySelector("span"); const r = b.getBoundingClientRect(); return { gap: r.top - a.bottom, clip: s.scrollWidth > s.clientWidth + 1 || b.scrollHeight > b.clientHeight + 1 }; }')
+    check('book page: pay-once option right below Pay and not clipped', 0 < g['gap'] < 90 and not g['clip'], g)
+    p.click('#trn-hold'); p.wait_for_selector('[data-hold-banner]')
+    check('card chosen on the book page: banner amount = card Pay amount', pg.ev('n => OT.inr(n)', card) in p.inner_text('[data-hold-banner]'), [card, p.inner_text('[data-hold-banner]')[:120]])
+    pg.wait_run(); p.click('[data-ref="H-CDG-01"] [data-add]'); p.wait_for_timeout(250)
+    # 2. fix: no sample return PNR / "Link return PNR" on an unpaid trip
+    pg.go('journey', 400)
+    jt = p.inner_text('#view')
+    check('unpaid trip: no PNR number anywhere on My Journey (no sample return PNR)', not re.search(r'PNR\s*\d', jt) and p.locator('[data-link-return]').count() == 0, re.findall(r'.{0,30}PNR\s*\d.{0,12}', jt))
+    # 3. fix: switching the method at checkout updates the held trains everywhere
+    pg.go('checkout', 400)
+    check('checkout opens on the method chosen on the book page (card)', pg.ev('() => document.querySelector("input[name=pm]:checked").value') == 'card')
+    p.locator('input[name="pm"][value="upi"]').check(force=True); p.wait_for_timeout(300)
+    gu = num(p.inner_text('.co-totals .grand strong'))
+    pg.go('journey', 400)
+    check('UPI chosen at checkout: My Journey "To pay now" = checkout total, unpaid note = UPI amount', num(p.inner_text('.cost .due')) == gu and num(p.inner_text('[data-hold-note] .hn-head strong')) == card - 15, [p.inner_text('.cost .due'), gu])
+    pick(ow, '12011', method='card'); p.click('#trn-hold'); p.wait_for_timeout(600)
+    pg.go('checkout', 400)
+    check('holding again with card: checkout follows card (+₹15)', pg.ev('() => document.querySelector("input[name=pm]:checked").value') == 'card' and num(p.inner_text('.co-totals .grand strong')) == gu + 15)
+    # 4. fix: removing the train turns the trip into a stay and re-renders (no page error)
+    pg.go('journey', 400)
+    p.click('[data-hold-note] [data-hold-remove="outward"]'); modal(1)
+    check('remove unpaid train: My Journey re-renders as a stay with "Add a train to this trip"', p.locator('[data-hold-note]').count() == 0 and p.locator('.tl-addtrain').count() == 1 and pg.ev('() => !OT.store.get("journey").train'))
+    pg.no_errors('verify v1.2.2 remove ' + tag)
+    # 5. fix: round trip held, "Change outward train" keeps the held return (one return, same journey, hotel kept)
+    fresh()
+    pick('trains?from=NDLS&to=CDG&date=%s&ret=%s&trip=round&pax=2' % (d, r), '12011', then_ret=True)
+    p.click('#trn-hold'); p.wait_for_function('() => OT.router.current().name === "results"', timeout=6000)
+    pg.wait_run(); p.click('[data-ref="H-CDG-01"] [data-add]'); p.wait_for_timeout(250)
+    jid = pg.ev('() => OT.store.get("journey").id')
+    pg.go('journey', 400)
+    p.locator('[data-hold-note] a[href*="trains?"]').first.click(); p.wait_for_timeout(500)
+    p.locator('.trn[data-train="12005"] .cls-tile:not([disabled])').first.click(); p.wait_for_timeout(400); fill_pax(p)
+    p.click('#trn-hold'); p.wait_for_timeout(600)
+    j = pg.ev('() => OT.store.get("journey")')
+    legs = [l['leg'] for l in j['hold']['legs']]
+    check('round trip: changing the unpaid outward keeps the unpaid return (one each), same journey, hotel kept', legs.count('outward') == 1 and legs.count('return') == 1 and j['train']['no'] == '12005' and (j.get('returnTrain') or {}).get('no') == '12012' and j['id'] == jid and any(i['refId'] == 'H-CDG-01' for i in j['items']), [legs, j['train']['no'], j.get('returnTrain'), j['id'] == jid])
+    pg.go('checkout', 400)
+    t = pg.ev('() => ({ lines: [...document.querySelectorAll(".co-lines > li .co-amt span:first-child")].map(s => +s.innerText.replace(/[^0-9]/g, "")), g: +document.querySelector(".co-totals .grand strong").innerText.replace(/[^0-9]/g, "") })')
+    check('checkout after the change: outward + return + hotel = total', len(t['lines']) == 3 and sum(t['lines']) == t['g'], t)
+    # 6. fix: unpaid outward + PAID return: removing the outward explains instead of hiding the paid return
+    fresh()
+    pick(ow, '12011'); p.click('#trn-hold'); p.wait_for_timeout(600)
+    pg.go('journey', 400); p.locator('[data-add-return]').first.click(); p.wait_for_timeout(500)
+    p.locator('.trn[data-train="12012"] [data-book="CC"]').first.click(); p.wait_for_timeout(400); fill_pax(p)
+    p.click('#trn-pay'); modal(1); close_ps()
+    pg.go('journey', 400)
+    p.click('[data-hold-note] [data-hold-remove="outward"]'); txt = modal(0)
+    j = pg.ev('() => OT.store.get("journey")')
+    check('remove unpaid outward while the return is paid: dialog explains, the paid return stays in the journey', 'already paid' in txt and j.get('train') and (j.get('returnTrain') or {}).get('pnr') and p.locator('[data-tl-kind="rdep"], .tl-row').count() > 0 and j['returnTrain']['pnr'] in p.inner_text('#view'), txt[:200])
+    pick(ow, '12005'); p.click('#trn-hold'); p.wait_for_timeout(600)
+    j = pg.ev('() => OT.store.get("journey")')
+    check('changing that unpaid outward keeps the paid return', j['train']['no'] == '12005' and (j.get('returnTrain') or {}).get('pnr'), j.get('returnTrain'))
+    pg.go('checkout', 400)
+    check('checkout: paid return shown as paid (not charged), one train line', p.locator('[data-co-return]').count() == 1 and p.locator('[data-train-line]').count() == 1)
+    p.click('#pay-btn'); modal(1); close_ps()
+    bk = pg.ev('() => OT.store.get("bookings")')
+    check('after paying: outward + return bookings, outward labelled', sorted(b.get('leg') or '' for b in bk if b['type'] == 'train') == ['outward', 'return'], [(b['type'], b.get('leg')) for b in bk])
+    live = pg.ev('() => { const a = OT.data.analytics.live(); return [a.gtv, a.trains.length]; }')
+    check('admin live data: trains counted separately from add-on GTV', live == [0, 2], live)
+    # 7. fix (phone): "No return train yet" card keeps its title readable next to "Add return train"
+    if vp == 'mobile':
+        fresh(); pick(ow, '12011'); p.click('#trn-hold'); p.wait_for_timeout(600)
+        pg.go('journey', 400)
+        ov = pg.ev('() => { const t = document.querySelector(".tl-addreturn .tl-main strong").getBoundingClientRect(), b = document.querySelector(".tl-addreturn [data-add-return]").getBoundingClientRect(); return !(t.right <= b.left || b.right <= t.left || t.bottom <= b.top || b.bottom <= t.top); }')
+        check('phone: "Add return train" does not overlap "No return train yet"', not ov)
+        pg.scan('verify v1.2.2 journey unpaid ' + tag, 'v122v-journey-' + vp)
+    pg.no_errors('verify v1.2.2 ' + tag)
+    pg.close()
+
+
 def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]; s.close(); return port
 
@@ -2110,6 +2221,12 @@ def main():
                             v122(browser, base, vp)
                         except Exception:
                             check('v1.2.2 completed', False, ' | '.join(l.strip() for l in traceback.format_exc().splitlines() if 'e2e.py' in l or 'Error' in l)[:900])
+                    GROUP[0] = 'verify v1.2.2 ' + tag
+                    if want('v122') or want('verify122'):
+                        try:
+                            verify122(browser, base, vp)
+                        except Exception:
+                            check('verify v1.2.2 completed', False, ' | '.join(l.strip() for l in traceback.format_exc().splitlines() if 'e2e.py' in l or 'Error' in l)[:900])
             browser.close()
     finally:
         srv.terminate()

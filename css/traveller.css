@@ -487,7 +487,7 @@ bdi.keep { unicode-bidi: isolate; white-space: nowrap; font-variant-numeric: tab
   .cmp-row { grid-template-columns: minmax(0, 110px) minmax(30px, 1fr) 62px; }
   .tl-row { grid-template-columns: 46px minmax(0, 1fr); }
   .tl-row.is-station .tl-node { width: 44px; font-size: .64rem; }
-  .tl-card { grid-template-columns: 1fr; }
+  .tl-card, .tl-ghost .tl-card { grid-template-columns: 1fr; }
   .tl-when .xs { display: inline; }
   .tl-badges { justify-content: flex-start; }
   .tl-actions { grid-column: auto; }
@@ -1129,3 +1129,8 @@ body.ps-open .modal-root { z-index: 106; }
 }
 #pay-btn { white-space: normal; height: auto; min-height: 48px; line-height: 1.25; text-align: center; }
 .hold-btn.btn-lg { font-size: 1rem; padding: 10px 14px; }
+
+/* v1.2.2 verify: phone tour: room to scroll a target near the page end above the tour card (e.g. the pay-once option) */
+@media (max-width: 699px) {
+  body.touring .app-footer { padding-bottom: 50vh; }
+}
